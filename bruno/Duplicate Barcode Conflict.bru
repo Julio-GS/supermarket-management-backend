@@ -1,0 +1,50 @@
+meta {
+  name: Duplicate Barcode Conflict
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/products
+  body: json
+  auth: bearer
+}
+
+headers {
+  Content-Type: application/json
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "detalle": "Duplicate Barcode Product",
+    "costo_neto": "1000.00",
+    "costo_final": "2000.00",
+    "iva": "21.00",
+    "cambio_costo": "2024-01-01",
+    "cambio_precio": "2024-01-01",
+    "etiqueta": "duplicate",
+    "facturable": true,
+    "maneja_stock": false,
+    "codigos": [
+      "{{barcode1}}"
+    ]
+  }
+}
+
+vars:pre-request {
+  baseUrl: http://localhost:3000/api/v1
+}
+
+tests {
+  test("status is 409", function() {
+    expect(res.getStatus()).to.equal(409);
+  });
+  
+  test("error mentions barcodes", function() {
+    expect(res.body.message).to.contain("barcodes");
+  });
+}

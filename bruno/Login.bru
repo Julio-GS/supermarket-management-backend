@@ -1,0 +1,42 @@
+meta {
+  name: Login
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/auth/login
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "username": "{{username}}",
+    "password": "{{password}}"
+  }
+}
+
+vars:pre-request {
+  baseUrl: http://localhost:3000/api/v1
+  username: bruno_
+  password: Pass1234!
+}
+
+script:post-response {
+  bru.setVar("token", res.body.access_token);
+}
+
+tests {
+  test("status is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+  
+  test("returns an access_token", function() {
+    expect(res.body.access_token).to.be.a("string");
+  });
+}

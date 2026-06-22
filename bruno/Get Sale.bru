@@ -1,0 +1,29 @@
+meta {
+  name: Get Sale
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{baseUrl}}/sales/{{saleId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+vars:pre-request {
+  baseUrl: http://localhost:3000/api/v1
+}
+
+tests {
+  test("status is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+  
+  test("returns the requested sale", function() {
+    expect(res.body.id).to.equal(bru.getVar("saleId"));
+  });
+}

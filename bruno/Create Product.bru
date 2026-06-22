@@ -1,0 +1,74 @@
+meta {
+  name: Create Product
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/products
+  body: json
+  auth: bearer
+}
+
+headers {
+  Content-Type: application/json
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "detalle": "{{productName}}",
+    "costo_neto": "1000.00",
+    "costo_final": "2500.50",
+    "iva": "21.00",
+    "cambio_costo": "2024-01-01",
+    "cambio_precio": "2024-01-01",
+    "etiqueta": "bruno-test",
+    "facturable": true,
+    "maneja_stock": false,
+    "codigos": [
+      "{{barcode1}}",
+      "{{barcode2}}"
+    ]
+  }
+}
+
+vars:pre-request {
+  baseUrl: http://localhost:3000/api/v1
+  productName: leche
+  barcode1: 12315321312
+  barcode2: 567840765
+}
+
+script:pre-request {
+  const ts = Date.now();
+  bru.setVar("barcode1", "BRU" + ts + "A");
+  bru.setVar("barcode2", "BRU" + ts + "B");
+  bru.setVar("productName", "Bruno Product " + ts);
+}
+
+script:post-response {
+  bru.setVar("productId", res.body.id);
+}
+
+tests {
+  test("status is 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+  
+  test("returns a product id", function() {
+    expect(res.body.id).to.be.a("string");
+  });
+  
+  test("costo_final is preserved", function() {
+    expect(res.body.costo_final).to.equal("2500.50");
+  });
+  
+  test("barcodes are returned", function() {
+    expect(res.body.codigos).to.be.an("array");
+    expect(res.body.codigos).to.have.lengthOf(2);
+  });
+}

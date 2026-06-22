@@ -1,0 +1,64 @@
+meta {
+  name: Create Sale With ARCA Invoice
+  type: http
+  seq: 12
+}
+
+post {
+  url: {{baseUrl}}/sales
+  body: json
+  auth: bearer
+}
+
+headers {
+  Content-Type: application/json
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "invoice_requested": true,
+    "items": [
+      {
+        "product_id": "{{productId}}",
+        "quantity": 1
+      }
+    ]
+  }
+}
+
+vars:pre-request {
+  baseUrl: http://localhost:3000/api/v1
+  productId: 7a771024-7206-4938-ba3d-40d2fed335fd
+  ~note: For local dev without real ARCA credentials, set ARCA_ENABLED=true and ARCA_MOCK=true. Mock mode returns deterministic fake invoice data.
+}
+
+script:post-response {
+  bru.setVar("saleId", res.body.id);
+  bru.setVar("cae", res.body.cae);
+  bru.setVar("cbteNro", res.body.cbte_nro);
+}
+
+tests {
+  test("status is 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+  
+  test("ARCA invoice was issued", function() {
+    expect(res.body.invoice_status).to.equal("issued");
+    expect(res.body.cae).to.be.a("string").and.not.empty;
+    expect(res.body.cae_vto).to.be.a("string").and.not.empty;
+    expect(res.body.cbte_nro).to.be.a("number");
+    expect(res.body.cbte_tipo).to.equal(6);
+    expect(res.body.pto_vta).to.be.a("number");
+    expect(res.body.invoice_requested_at).to.be.a("string");
+  });
+  
+  test("sale has one item", function() {
+    expect(res.body.items).to.be.an("array");
+    expect(res.body.items).to.have.lengthOf(1);
+  });
+}

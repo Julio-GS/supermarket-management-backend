@@ -1,0 +1,46 @@
+meta {
+  name: Update Product
+  type: http
+  seq: 6
+}
+
+put {
+  url: {{baseUrl}}/products/{{productId}}
+  body: json
+  auth: bearer
+}
+
+headers {
+  Content-Type: application/json
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "costo_neto": "1200",
+     "costo_final": "2600",
+    "cambio_precio": "2024-06-20"
+  }
+}
+
+vars:pre-request {
+  baseUrl: http://localhost:3000/api/v1
+  productId: c5641a44-8e5c-45c6-a716-8a782bd5dae5
+}
+
+script:pre-request {
+  bru.setVar("productName", bru.getVar("productName") || "Bruno Product");
+}
+
+tests {
+  test("status is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+  
+  test("detalle is updated", function() {
+    expect(res.body.detalle).to.contain("Updated");
+  });
+}

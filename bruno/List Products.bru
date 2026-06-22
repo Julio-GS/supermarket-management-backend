@@ -1,0 +1,29 @@
+meta {
+  name: List Products
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/products
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+vars:pre-request {
+  baseUrl: http://localhost:3000/api/v1
+}
+
+tests {
+  test("status is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+  
+  test("returns an array", function() {
+    expect(res.body).to.be.an("array");
+  });
+}
