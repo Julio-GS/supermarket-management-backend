@@ -34,8 +34,16 @@ export class CreateSaleUseCase {
     const loadedItems: { product: Product; quantity: number }[] = [];
     let total = Money.zero();
 
+    const productIds = [...new Set(input.items.map((item) => item.product_id))];
+    const productsById = new Map(
+      (await this.products.findByIdsForSale(productIds)).map((product) => [
+        product.id,
+        product,
+      ]),
+    );
+
     for (const item of input.items) {
-      const product = await this.products.findById(item.product_id);
+      const product = productsById.get(item.product_id);
       if (!product) {
         throw new NotFoundError(`Product ${item.product_id} not found`);
       }

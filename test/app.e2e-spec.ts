@@ -100,6 +100,105 @@ describe("AppController (e2e)", () => {
       .expect(409);
   });
 
+  it("/products (GET) keeps array compatibility without pagination params", async () => {
+    const res = await request(app.getHttpServer())
+      .get("/api/v1/products")
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(Array.isArray(res.body)).toBe(true);
+  });
+
+  it("/products (GET) returns paginated metadata and invalidates cached reads after writes", async () => {
+    const before = await request(app.getHttpServer())
+      .get("/api/v1/products?page=1&limit=50&sort=created_at:desc")
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(Array.isArray(before.body.data)).toBe(true);
+    expect(before.body.meta).toEqual(
+      expect.objectContaining({
+        page: 1,
+        limit: 50,
+        total: expect.any(Number),
+        totalPages: expect.any(Number),
+      }),
+    );
+
+    const created = await request(app.getHttpServer())
+      .post("/api/v1/products")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        detalle: "Cache Invalidation Product",
+        costo_neto: "1000.00",
+        costo_final: "2000.00",
+        iva: "21.00",
+        cambio_costo: "2024-01-01",
+        cambio_precio: "2024-01-01",
+        etiqueta: "cache",
+        facturable: true,
+        maneja_stock: false,
+        codigos: ["CACHE001"],
+      })
+      .expect(201);
+
+    const after = await request(app.getHttpServer())
+      .get("/api/v1/products?page=1&limit=50&sort=created_at:desc")
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(
+      after.body.data.map((product: { id: string }) => product.id),
+    ).toContain(created.body.id);
+    expect(after.body.meta.total).toBeGreaterThan(before.body.meta.total);
+  });
+
+  it("/products (GET) searches products by detail or barcode", async () => {
+    const created = await request(app.getHttpServer())
+      .post("/api/v1/products")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        detalle: "Searchable Milk Product",
+        costo_neto: "1000.00",
+        costo_final: "2000.00",
+        iva: "21.00",
+        cambio_costo: "2024-01-01",
+        cambio_precio: "2024-01-01",
+        etiqueta: "search",
+        facturable: true,
+        maneja_stock: false,
+        codigos: ["SEARCH-MILK-001"],
+      })
+      .expect(201);
+
+    const detailSearch = await request(app.getHttpServer())
+      .get("/api/v1/products?search=milk")
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(Array.isArray(detailSearch.body)).toBe(true);
+    expect(
+      detailSearch.body.map((product: { id: string }) => product.id),
+    ).toContain(created.body.id);
+
+    const barcodeSearch = await request(app.getHttpServer())
+      .get("/api/v1/products?search=SEARCH-MILK-001&page=1&limit=20&sort=detalle:asc")
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(Array.isArray(barcodeSearch.body.data)).toBe(true);
+    expect(
+      barcodeSearch.body.data.map((product: { id: string }) => product.id),
+    ).toContain(created.body.id);
+    expect(barcodeSearch.body.meta).toEqual(
+      expect.objectContaining({
+        page: 1,
+        limit: 20,
+        total: expect.any(Number),
+      }),
+    );
+  });
+
   it("/sales (POST) creates a sale with computed totals", async () => {
     const product = await request(app.getHttpServer())
       .post("/api/v1/products")
@@ -191,6 +290,30 @@ describe("AppController (e2e)", () => {
     expect(res.body.cae).toBe("74154876254185");
     expect(res.body.cbte_tipo).toBe(6);
     expect(createFacturaBConsumidorFinal).toHaveBeenCalledTimes(1);
+  });
+
+  it("/sales (GET) supports pagination metadata without changing default array reads", async () => {
+    const defaultRead = await request(app.getHttpServer())
+      .get("/api/v1/sales")
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(Array.isArray(defaultRead.body)).toBe(true);
+
+    const pagedRead = await request(app.getHttpServer())
+      .get("/api/v1/sales?page=1&limit=10&sort=created_at:desc")
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(Array.isArray(pagedRead.body.data)).toBe(true);
+    expect(pagedRead.body.meta).toEqual(
+      expect.objectContaining({
+        page: 1,
+        limit: 10,
+        total: expect.any(Number),
+        totalPages: expect.any(Number),
+      }),
+    );
   });
 
   it("/sales (POST) rejects invoice requests when any product is not facturable", async () => {

@@ -12,11 +12,13 @@ import { GetSaleUseCase } from "./application/get-sale.use-case";
 import { IssueArcaInvoiceUseCase } from "./application/issue-arca-invoice.use-case";
 import { ArcaInvoicePort } from "./application/arca-invoice.port";
 import { ArcaInvoiceAdapter } from "./infrastructure/arca-invoice.adapter";
+import { ReadCacheModule } from "../../shared/cache/read-cache.module";
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([SaleEntity, SaleItemEntity]),
     ProductsModule,
+    ReadCacheModule,
   ],
   controllers: [SalesController],
   providers: [

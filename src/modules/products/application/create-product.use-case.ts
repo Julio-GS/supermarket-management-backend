@@ -5,16 +5,23 @@ import {
 } from "./product.repository.port";
 import { Product } from "../domain/product.entity";
 import { ConflictError } from "../../../shared/errors/domain.error";
+import { ReadCachePort } from "../../../shared/cache/read-cache.port";
+import { PRODUCT_READ_CACHE_POLICY } from "../../../shared/cache/cache-policy";
 
 @Injectable()
 export class CreateProductUseCase {
-  constructor(private readonly products: ProductRepositoryPort) {}
+  constructor(
+    private readonly products: ProductRepositoryPort,
+    private readonly cache: ReadCachePort,
+  ) {}
 
   async execute(input: ProductCreateInput): Promise<Product> {
     const hasDuplicates = await this.products.existsAnyBarcode(input.codigos);
     if (hasDuplicates) {
       throw new ConflictError("One or more barcodes already exist");
     }
-    return this.products.create(input);
+    const product = await this.products.create(input);
+    await this.cache.deleteByPrefix(PRODUCT_READ_CACHE_POLICY.prefix);
+    return product;
   }
 }

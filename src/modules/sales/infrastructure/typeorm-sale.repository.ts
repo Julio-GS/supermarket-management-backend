@@ -4,10 +4,19 @@ import { Repository } from "typeorm";
 import {
   SaleRepositoryPort,
   SaleCreateInput,
+  SaleReadOptions,
 } from "../application/sale.repository.port";
 import { Sale, SaleItem } from "../domain/sale.entity";
 import { SaleEntity } from "./typeorm-sale.entity";
 import { SaleItemEntity } from "./typeorm-sale-item.entity";
+import { createPage, Page } from "../../../shared/read-model/page";
+import {
+  offsetFor,
+  parseSort,
+} from "../../../shared/read-model/pagination.dto";
+import { saleProjection } from "../../../shared/read-model/projection";
+
+const SALE_SORT_FIELDS = ["created_at", "updated_at", "total"] as const;
 
 @Injectable()
 export class TypeOrmSaleRepository extends SaleRepositoryPort {
@@ -38,12 +47,31 @@ export class TypeOrmSaleRepository extends SaleRepositoryPort {
   }
 
   async findByUser(user_id: string): Promise<Sale[]> {
-    const entities = await this.saleRepo.find({
-      where: { user_id },
-      relations: ["items"],
-      order: { created_at: "DESC" },
-    });
+    const entities = await this.baseUserQuery(user_id)
+      .orderBy("sale.created_at", "DESC")
+      .getMany();
     return entities.map((e) => this.toDomain(e));
+  }
+
+  async findPageByUser(
+    user_id: string,
+    options: SaleReadOptions,
+  ): Promise<Page<Sale>> {
+    const sort = parseSort(options.sort, SALE_SORT_FIELDS, {
+      field: "created_at",
+      direction: "DESC",
+    });
+    const [entities, total] = await this.baseUserQuery(user_id)
+      .orderBy(`sale.${sort.field}`, sort.direction)
+      .skip(offsetFor(options))
+      .take(options.limit)
+      .getManyAndCount();
+
+    return createPage(
+      entities.map((e) => this.toDomain(e)),
+      total,
+      options,
+    );
   }
 
   async findByIdForUser(id: string, user_id: string): Promise<Sale | null> {
@@ -52,6 +80,22 @@ export class TypeOrmSaleRepository extends SaleRepositoryPort {
       relations: ["items"],
     });
     return entity ? this.toDomain(entity) : null;
+  }
+
+  private baseUserQuery(user_id: string) {
+    return this.saleRepo
+      .createQueryBuilder("sale")
+      .select(saleProjection.list.map((field) => `sale.${field}`))
+      .leftJoin("sale.items", "item")
+      .addSelect([
+        "item.id",
+        "item.sale_id",
+        "item.product_id",
+        "item.quantity",
+        "item.unit_price",
+        "item.subtotal",
+      ])
+      .where("sale.user_id = :user_id", { user_id });
   }
 
   private toDomain(entity: SaleEntity): Sale {

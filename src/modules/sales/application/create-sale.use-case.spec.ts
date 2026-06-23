@@ -66,8 +66,10 @@ describe("CreateSaleUseCase", () => {
   beforeEach(async () => {
     products = {
       findById: jest.fn(),
+      findByIdsForSale: jest.fn(),
       create: jest.fn(),
       findAll: jest.fn(),
+      findPage: jest.fn(),
       findByBarcode: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
@@ -76,6 +78,7 @@ describe("CreateSaleUseCase", () => {
     sales = {
       create: jest.fn(),
       findByUser: jest.fn(),
+      findPageByUser: jest.fn(),
       findByIdForUser: jest.fn(),
     };
     issueInvoice = {
@@ -96,7 +99,7 @@ describe("CreateSaleUseCase", () => {
 
   it("creates a non-fiscal sale when invoice_requested is not provided", async () => {
     const product = buildProduct();
-    products.findById.mockResolvedValue(product);
+    products.findByIdsForSale.mockResolvedValue([product]);
     sales.create.mockResolvedValue(buildSale({ total: "121.00" }));
 
     const result = await useCase.execute({
@@ -118,7 +121,7 @@ describe("CreateSaleUseCase", () => {
 
   it("defaults invoice_requested to false", async () => {
     const product = buildProduct();
-    products.findById.mockResolvedValue(product);
+    products.findByIdsForSale.mockResolvedValue([product]);
     sales.create.mockResolvedValue(buildSale());
 
     await useCase.execute({
@@ -131,7 +134,7 @@ describe("CreateSaleUseCase", () => {
 
   it("calls ARCA and persists invoice data when invoice_requested is true", async () => {
     const product = buildProduct();
-    products.findById.mockResolvedValue(product);
+    products.findByIdsForSale.mockResolvedValue([product]);
     issueInvoice.issue.mockResolvedValue({
       cae: "74154876254185",
       cae_vto: "20240111",
@@ -170,7 +173,7 @@ describe("CreateSaleUseCase", () => {
 
   it("blocks the sale when any product is not facturable and invoice is requested", async () => {
     const product = buildProduct({ facturable: false });
-    products.findById.mockResolvedValue(product);
+    products.findByIdsForSale.mockResolvedValue([product]);
 
     await expect(
       useCase.execute({
@@ -186,7 +189,7 @@ describe("CreateSaleUseCase", () => {
 
   it("does not block non-fiscal sales for non-facturable products", async () => {
     const product = buildProduct({ facturable: false });
-    products.findById.mockResolvedValue(product);
+    products.findByIdsForSale.mockResolvedValue([product]);
     sales.create.mockResolvedValue(buildSale());
 
     const result = await useCase.execute({
@@ -199,7 +202,7 @@ describe("CreateSaleUseCase", () => {
   });
 
   it("rejects unknown products before checking invoice eligibility", async () => {
-    products.findById.mockResolvedValue(null);
+    products.findByIdsForSale.mockResolvedValue([]);
 
     await expect(
       useCase.execute({
@@ -215,7 +218,7 @@ describe("CreateSaleUseCase", () => {
 
   it("propagates ARCA failures and does not persist the sale", async () => {
     const product = buildProduct();
-    products.findById.mockResolvedValue(product);
+    products.findByIdsForSale.mockResolvedValue([product]);
     issueInvoice.issue.mockRejectedValue(new Error("ARCA timeout"));
 
     await expect(
@@ -227,5 +230,25 @@ describe("CreateSaleUseCase", () => {
     ).rejects.toThrow("ARCA timeout");
 
     expect(sales.create).not.toHaveBeenCalled();
+  });
+
+  it("loads repeated sale products in one batch before processing items", async () => {
+    const product = buildProduct();
+    products.findByIdsForSale.mockResolvedValue([product]);
+    sales.create.mockResolvedValue(buildSale({ total: "242.00" }));
+
+    await useCase.execute({
+      user_id: "user-id",
+      items: [
+        { product_id: product.id, quantity: 1 },
+        { product_id: product.id, quantity: 1 },
+      ],
+    });
+
+    expect(products.findByIdsForSale).toHaveBeenCalledWith([product.id]);
+    expect(products.findById).not.toHaveBeenCalled();
+    expect(sales.create).toHaveBeenCalledWith(
+      expect.objectContaining({ total: "242.00" }),
+    );
   });
 });

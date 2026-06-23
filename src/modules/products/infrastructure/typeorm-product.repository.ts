@@ -1,14 +1,29 @@
 import { Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository } from "typeorm";
+import { In, Repository, SelectQueryBuilder } from "typeorm";
 import {
   ProductRepositoryPort,
   ProductCreateInput,
   ProductUpdateInput,
+  ProductReadOptions,
+  ProductListOptions,
 } from "../application/product.repository.port";
 import { Product } from "../domain/product.entity";
 import { ProductEntity } from "./typeorm-product.entity";
 import { ProductBarcodeEntity } from "./typeorm-product-barcode.entity";
+import { createPage, Page } from "../../../shared/read-model/page";
+import {
+  offsetFor,
+  parseSort,
+} from "../../../shared/read-model/pagination.dto";
+import { productProjection } from "../../../shared/read-model/projection";
+
+const PRODUCT_SORT_FIELDS = [
+  "detalle",
+  "created_at",
+  "updated_at",
+  "costo_final",
+] as const;
 
 @Injectable()
 export class TypeOrmProductRepository extends ProductRepositoryPort {
@@ -30,9 +45,31 @@ export class TypeOrmProductRepository extends ProductRepositoryPort {
     return this.toDomain(saved);
   }
 
-  async findAll(): Promise<Product[]> {
-    const entities = await this.productRepo.find({ relations: ["barcodes"] });
+  async findAll(options: ProductListOptions = {}): Promise<Product[]> {
+    const qb = this.createListQuery(options.search).orderBy(
+      "product.created_at",
+      "DESC",
+    );
+    const entities = await qb.getMany();
     return entities.map((e) => this.toDomain(e));
+  }
+
+  async findPage(options: ProductReadOptions): Promise<Page<Product>> {
+    const sort = parseSort(options.sort, PRODUCT_SORT_FIELDS, {
+      field: "created_at",
+      direction: "DESC",
+    });
+    const [entities, total] = await this.createListQuery(options.search)
+      .orderBy(`product.${sort.field}`, sort.direction)
+      .skip(offsetFor(options))
+      .take(options.limit)
+      .getManyAndCount();
+
+    return createPage(
+      entities.map((e) => this.toDomain(e)),
+      total,
+      options,
+    );
   }
 
   async findById(id: string): Promise<Product | null> {
@@ -41,6 +78,15 @@ export class TypeOrmProductRepository extends ProductRepositoryPort {
       relations: ["barcodes"],
     });
     return entity ? this.toDomain(entity) : null;
+  }
+
+  async findByIdsForSale(ids: string[]): Promise<Product[]> {
+    if (ids.length === 0) return [];
+    const entities = await this.productRepo.find({
+      where: { id: In(ids) },
+      relations: ["barcodes"],
+    });
+    return entities.map((e) => this.toDomain(e));
   }
 
   async findByBarcode(codigo: string): Promise<Product | null> {
@@ -115,5 +161,24 @@ export class TypeOrmProductRepository extends ProductRepositoryPort {
     product.created_at = entity.created_at;
     product.updated_at = entity.updated_at;
     return product;
+  }
+
+  private createListQuery(search?: string): SelectQueryBuilder<ProductEntity> {
+    const qb = this.productRepo
+      .createQueryBuilder("product")
+      .select(productProjection.list.map((field) => `product.${field}`))
+      .leftJoin("product.barcodes", "barcode")
+      .addSelect(["barcode.id", "barcode.product_id", "barcode.codigo"])
+      .distinct(true);
+
+    const normalizedSearch = search?.trim().toLowerCase();
+    if (normalizedSearch) {
+      qb.andWhere(
+        "(LOWER(product.detalle) LIKE :search OR LOWER(barcode.codigo) LIKE :search)",
+        { search: `%${normalizedSearch}%` },
+      );
+    }
+
+    return qb;
   }
 }

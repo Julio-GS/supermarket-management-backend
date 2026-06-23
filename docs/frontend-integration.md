@@ -1,16 +1,17 @@
 # Supermarket MVP — Frontend Integration Guide
 
-This guide maps the NestJS backend to the frontend contracts you need to call it. It covers auth, products, sales, error handling, TypeScript types, and the Bruno collection used to exercise the API.
+This guide maps the NestJS backend to the frontend contracts you need to call it. It covers auth, products, sales, paginated reads, safe caching behavior, error handling, TypeScript types, and the Bruno collection used to exercise the API.
 
 ## Quick path
 
 1. `POST /auth/register` or `POST /auth/login` to get an `access_token`.
 2. Store the token and send it on every protected request as `Authorization: Bearer <token>`.
 3. `POST /products` to create products with at least one barcode.
-4. `GET /products` and `GET /products/:id` to read them back.
-5. `POST /sales` with `{ items: [{ product_id, quantity }], invoice_requested?: boolean }` to create a sale; the backend computes `total`.
-6. Set `invoice_requested: true` only when the cashier asks for electronic invoicing. Local development can use `ARCA_MOCK=true` so the response includes fake invoice data without real ARCA credentials.
-7. Handle `400`, `401`, `404`, and `409` using the error shape in [Error response shape](#error-response-shape).
+4. `GET /products?search=leche&page=1&limit=20&sort=detalle:asc` for searchable paginated product reads, or `GET /products` for the legacy array response.
+5. `GET /sales?page=1&limit=20&sort=created_at:desc` for paginated sale history, or `GET /sales` for the legacy array response.
+6. `POST /sales` with `{ items: [{ product_id, quantity }], invoice_requested?: boolean }` to create a sale; the backend computes `total`.
+7. Set `invoice_requested: true` only when the cashier asks for electronic invoicing. Local development can use `ARCA_MOCK=true` so the response includes fake invoice data without real ARCA credentials.
+8. Handle `400`, `401`, `404`, and `409` using the error shape in [Error response shape](#error-response-shape).
 
 ## Base URL and API prefix
 
@@ -80,6 +81,73 @@ Authorization: Bearer <access_token>
 
 Protected routes are all product and sale routes (`/products/*`, `/sales/*`).
 
+## Read performance features
+
+The backend now supports optimized read paths for product and sale listing screens.
+
+### Backward-compatible list behavior
+
+List endpoints intentionally keep the old response shape when no pagination query is sent:
+
+```http
+GET /products
+GET /sales
+```
+
+Both return a plain JSON array, as before. This avoids breaking existing frontend screens.
+
+Send any pagination query (`page`, `limit`, or `sort`) to opt into the new paginated response shape:
+
+```http
+GET /products?page=1&limit=20&sort=created_at:desc
+GET /sales?page=1&limit=20&sort=created_at:desc
+```
+
+For product lists, `search` filters by product `detalle` or any barcode in `codigos`. Search alone keeps the legacy array shape; search plus `page`, `limit`, or `sort` returns the paginated wrapper.
+
+### Pagination query contract
+
+| Query | Type | Default | Limit | Notes |
+|-------|------|---------|-------|-------|
+| `page` | integer | `1` | min `1` | 1-based page number. |
+| `limit` | integer | `20` | min `1`, max `100` | Page size. Requests above `100` are rejected by validation. |
+| `sort` | string | endpoint default | allowed fields only | Format: `field:direction`, for example `created_at:desc` or `detalle:asc`. Invalid fields fall back to the endpoint default. |
+| `search` | string | none | products only | Matches product `detalle` or barcode values in `codigos`. Does not opt into pagination by itself. |
+
+Paginated responses use this wrapper:
+
+```json
+{
+  "data": [
+    { "id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11" }
+  ],
+  "meta": {
+    "page": 1,
+    "limit": 20,
+    "total": 42,
+    "totalPages": 3,
+    "hasNext": true
+  }
+}
+```
+
+### Sorting fields
+
+| Endpoint | Supported sort examples | Default |
+|----------|--------------------------|---------|
+| `GET /products` | `created_at:desc`, `created_at:asc`, `detalle:asc`, `detalle:desc` | `created_at:desc` |
+| `GET /sales` | `created_at:desc`, `created_at:asc`, `total:asc`, `total:desc` | `created_at:desc` |
+
+If the frontend sends an unsupported sort field, the backend does not fail the request; it uses the endpoint default sort instead.
+
+### Projection and caching behavior
+
+The backend applies list projections internally so list queries fetch only the fields needed for list responses. There is no public `fields` query parameter yet.
+
+Product read paths can use a short-lived read cache for safe product/reference data. Frontend code does not need to send cache headers or manage cache keys. Product writes invalidate product read cache entries server-side.
+
+Do not assume sale creation, stock-sensitive behavior, or ARCA invoicing is cached. ARCA invoicing remains synchronous by design.
+
 ## Products module
 
 Base route: `/products`. All routes require the bearer token.
@@ -142,6 +210,8 @@ Rules:
 
 `GET /products`
 
+Without query parameters, this returns the legacy array response:
+
 ```json
 // Response 200 OK
 [
@@ -162,6 +232,50 @@ Rules:
   }
 ]
 ```
+
+Use `search` to filter by product `detalle` or barcode. With only `search`, the endpoint keeps the legacy array response shape:
+
+```http
+GET /products?search=leche
+```
+
+With pagination parameters, this returns a page wrapper. Search composes with pagination and sorting:
+
+```http
+GET /products?search=leche&page=1&limit=20&sort=detalle:asc
+```
+
+```json
+// Response 200 OK
+{
+  "data": [
+    {
+      "id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+      "detalle": "Test Product",
+      "costo_neto": "1000.00",
+      "costo_final": "2500.50",
+      "iva": "21.00",
+      "cambio_costo": "2024-01-01",
+      "cambio_precio": "2024-01-01",
+      "etiqueta": "test",
+      "facturable": true,
+      "maneja_stock": false,
+      "codigos": ["123456789"],
+      "created_at": "2024-01-01T00:00:00.000Z",
+      "updated_at": "2024-01-01T00:00:00.000Z"
+    }
+  ],
+  "meta": {
+    "page": 1,
+    "limit": 20,
+    "total": 1,
+    "totalPages": 1,
+    "hasNext": false
+  }
+}
+```
+
+Use paginated reads for new product list screens. Keep `GET /products` without query params only for legacy screens that still expect an array.
 
 ### Get one product
 
@@ -402,6 +516,8 @@ Invoice fields in every sale response:
 
 Returns only the authenticated user's sales, ordered by `created_at DESC`.
 
+Without query parameters, this returns the legacy array response:
+
 ```json
 // Response 200 OK
 [
@@ -415,6 +531,44 @@ Returns only the authenticated user's sales, ordered by `created_at DESC`.
   }
 ]
 ```
+
+With pagination parameters, this returns a page wrapper:
+
+```http
+GET /sales?page=1&limit=20&sort=created_at:desc
+```
+
+```json
+// Response 200 OK
+{
+  "data": [
+    {
+      "id": "b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a22",
+      "user_id": "c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33",
+      "total": "300.00",
+      "items": [...],
+      "invoice_status": "none",
+      "cae": null,
+      "cae_vto": null,
+      "cbte_nro": null,
+      "cbte_tipo": null,
+      "pto_vta": null,
+      "invoice_requested_at": null,
+      "created_at": "2024-01-01T00:00:00.000Z",
+      "updated_at": "2024-01-01T00:00:00.000Z"
+    }
+  ],
+  "meta": {
+    "page": 1,
+    "limit": 20,
+    "total": 1,
+    "totalPages": 1,
+    "hasNext": false
+  }
+}
+```
+
+Sale history is scoped to the authenticated user. The frontend should not send a `user_id` query parameter.
 
 ### Get one sale
 
@@ -484,6 +638,26 @@ interface AuthResponse {
 }
 
 // Products
+interface PaginationQuery {
+  page?: number;
+  limit?: number;
+  sort?: string;
+  search?: string; // products only
+}
+
+interface PageMeta {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+  hasNext: boolean;
+}
+
+interface PageResponse<T> {
+  data: T[];
+  meta: PageMeta;
+}
+
 interface CreateProductRequest {
   detalle: string;
   costo_neto: string;
@@ -514,6 +688,8 @@ interface ProductResponse {
   created_at: string; // ISO 8601
   updated_at: string; // ISO 8601
 }
+
+type ProductListResponse = ProductResponse[] | PageResponse<ProductResponse>;
 
 // Sales
 interface SaleItemRequest {
@@ -551,6 +727,8 @@ interface SaleResponse {
   created_at: string; // ISO 8601
   updated_at: string; // ISO 8601
 }
+
+type SaleListResponse = SaleResponse[] | PageResponse<SaleResponse>;
 
 // Errors
 interface ApiError {
@@ -592,6 +770,24 @@ async function createProduct(token: string, product: CreateProductRequest): Prom
   if (!res.ok) throw new Error(data.message);
   return data;
 }
+
+async function listProductsPage(
+  token: string,
+  query: PaginationQuery = { page: 1, limit: 20, sort: 'created_at:desc' },
+): Promise<PageResponse<ProductResponse>> {
+  const params = new URLSearchParams();
+  if (query.search) params.set('search', query.search);
+  if (query.page !== undefined) params.set('page', String(query.page));
+  if (query.limit !== undefined) params.set('limit', String(query.limit));
+  if (query.sort) params.set('sort', query.sort);
+
+  const res = await fetch(`${API}/products?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.message);
+  return data;
+}
 ```
 
 ### Axios
@@ -615,6 +811,13 @@ async function createSale(items: SaleItemRequest[], invoiceRequested = false): P
   const { data } = await api.post('/sales', {
     items,
     invoice_requested: invoiceRequested,
+  });
+  return data;
+}
+
+async function listSalesPage(page = 1): Promise<PageResponse<SaleResponse>> {
+  const { data } = await api.get('/sales', {
+    params: { page, limit: 20, sort: 'created_at:desc' },
   });
   return data;
 }
@@ -665,8 +868,12 @@ The collection uses runtime variables (`username`, `password`, `token`, `product
 - [ ] Product create requests include at least one barcode in `codigos`.
 - [ ] Money fields are sent as plain numeric strings with up to two decimals.
 - [ ] Product date fields (`cambio_costo`, `cambio_precio`) are sent as strings.
+- [ ] New list screens use paginated reads with `page`, `limit`, and `sort` instead of unbounded arrays.
+- [ ] Frontend handles both legacy array responses and paginated `{ data, meta }` responses during migration.
+- [ ] Frontend treats `meta.totalPages` and `meta.hasNext` as the source of truth for pagination controls.
 - [ ] Sale `items` array is non-empty and each item has `product_id` and `quantity ≥ 1`.
 - [ ] Frontend sends `invoice_requested: true` only when the cashier explicitly asks for electronic invoicing.
+- [ ] Frontend does not add async/polling behavior for ARCA; sale creation with invoice remains a synchronous request.
 - [ ] Frontend treats `invoice_status: "none"` as a non-fiscal sale and hides CAE/comprobante details.
 - [ ] Frontend displays `cae`, `cae_vto`, `cbte_nro`, `cbte_tipo`, and `pto_vta` when `invoice_status: "issued"`.
 - [ ] Frontend displays backend-computed `total`, `unit_price`, and `subtotal` from sale responses.
@@ -675,4 +882,4 @@ The collection uses runtime variables (`username`, `password`, `token`, `product
 
 ## Next step
 
-Point the frontend at the local backend (`pnpm start:dev`), run the Bruno collection to confirm connectivity, then implement the auth interceptor and product list first.
+Point the frontend at the local backend (`pnpm start:dev`), run the Bruno collection to confirm connectivity, then implement the auth interceptor and paginated product list first.

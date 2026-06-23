@@ -5,6 +5,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   Req,
   UseGuards,
 } from "@nestjs/common";
@@ -19,6 +20,12 @@ import { CreateSaleUseCase } from "../application/create-sale.use-case";
 import { ListSalesUseCase } from "../application/list-sales.use-case";
 import { GetSaleUseCase } from "../application/get-sale.use-case";
 import { Sale } from "../domain/sale.entity";
+import {
+  hasPaginationQuery,
+  normalizePagination,
+  PaginationQueryDto,
+} from "../../../shared/read-model/pagination.dto";
+import { Page, mapPage } from "../../../shared/read-model/page";
 
 interface AuthenticatedRequest extends Request {
   user: { sub: string; username: string };
@@ -73,7 +80,17 @@ export class SalesController {
   }
 
   @Get()
-  async list(@Req() req: AuthenticatedRequest): Promise<SaleResponseDto[]> {
+  async list(
+    @Req() req: AuthenticatedRequest,
+    @Query() query: PaginationQueryDto,
+  ): Promise<SaleResponseDto[] | Page<SaleResponseDto>> {
+    if (hasPaginationQuery(query)) {
+      const page = await this.listSales.executePage(
+        req.user.sub,
+        normalizePagination(query),
+      );
+      return mapPage(page, toSaleResponse);
+    }
     const sales = await this.listSales.execute(req.user.sub);
     return sales.map(toSaleResponse);
   }

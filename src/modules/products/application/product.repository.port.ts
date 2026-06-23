@@ -1,4 +1,11 @@
 import { Product } from "../domain/product.entity";
+import { Page, PaginationOptions } from "../../../shared/read-model/page";
+
+export interface ProductListOptions {
+  search?: string;
+}
+
+export type ProductReadOptions = PaginationOptions;
 
 export interface ProductCreateInput {
   detalle: string;
@@ -28,8 +35,10 @@ export interface ProductUpdateInput {
 
 export abstract class ProductRepositoryPort {
   abstract create(input: ProductCreateInput): Promise<Product>;
-  abstract findAll(): Promise<Product[]>;
+  abstract findAll(options?: ProductListOptions): Promise<Product[]>;
+  abstract findPage(options: ProductReadOptions): Promise<Page<Product>>;
   abstract findById(id: string): Promise<Product | null>;
+  abstract findByIdsForSale(ids: string[]): Promise<Product[]>;
   abstract findByBarcode(codigo: string): Promise<Product | null>;
   abstract update(
     id: string,

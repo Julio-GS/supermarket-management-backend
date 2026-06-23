@@ -1,0 +1,26 @@
+meta {
+  name: prueba
+  type: http
+  seq: 13
+}
+
+post {
+  url: https://supermarket-management-backend-production.up.railway.app/api/v1/auth/register
+  body: json
+  auth: inherit
+}
+
+headers {
+  content-type: application/json
+}
+
+body:json {
+  {
+    "username": "bruno_1782171813580",
+    "password": "Pass1234!"
+  }
+}
+
+settings {
+  encodeUrl: false
+}

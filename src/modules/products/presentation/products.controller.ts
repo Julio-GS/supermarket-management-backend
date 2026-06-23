@@ -8,6 +8,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   Put,
   UseGuards,
 } from "@nestjs/common";
@@ -16,6 +17,7 @@ import {
   CreateProductDto,
   UpdateProductDto,
   ProductResponseDto,
+  ProductListQueryDto,
 } from "./product.dto";
 import { CreateProductUseCase } from "../application/create-product.use-case";
 import { ListProductsUseCase } from "../application/list-products.use-case";
@@ -23,6 +25,11 @@ import { GetProductUseCase } from "../application/get-product.use-case";
 import { UpdateProductUseCase } from "../application/update-product.use-case";
 import { DeleteProductUseCase } from "../application/delete-product.use-case";
 import { Product } from "../domain/product.entity";
+import {
+  hasPaginationQuery,
+  normalizePagination,
+} from "../../../shared/read-model/pagination.dto";
+import { Page, mapPage } from "../../../shared/read-model/page";
 
 function toProductResponse(product: Product): ProductResponseDto {
   return {
@@ -60,8 +67,16 @@ export class ProductsController {
   }
 
   @Get()
-  async list(): Promise<ProductResponseDto[]> {
-    const products = await this.listProducts.execute();
+  async list(
+    @Query() query: ProductListQueryDto,
+  ): Promise<ProductResponseDto[] | Page<ProductResponseDto>> {
+    if (hasPaginationQuery(query)) {
+      const page = await this.listProducts.executePage(
+        normalizePagination(query, { search: query.search }),
+      );
+      return mapPage(page, toProductResponse);
+    }
+    const products = await this.listProducts.execute({ search: query.search });
     return products.map(toProductResponse);
   }
 

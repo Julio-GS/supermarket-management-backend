@@ -5,7 +5,7 @@ meta {
 }
 
 post {
-  url: {{baseUrl}}/auth/register
+  url: https://{{baseUrl}}/auth/register
   body: json
   auth: none
 }
@@ -26,8 +26,8 @@ vars:pre-request {
 }
 
 script:pre-request {
-  bru.setVar("username", "bruno_" + Date.now());
-  bru.setVar("password", "Pass1234!");
+  bru.setVar("username", "admin");
+  bru.setVar("password", "admin123");
 }
 
 tests {

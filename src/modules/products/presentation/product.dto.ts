@@ -10,6 +10,7 @@ import {
   ValidationArguments,
 } from "class-validator";
 import { validateMoneyString } from "../../../shared/money/money.helper";
+import { PaginationQueryDto } from "../../../shared/read-model/pagination.dto";
 
 @ValidatorConstraint({ name: "moneyString", async: false })
 class MoneyStringConstraint implements ValidatorConstraintInterface {
@@ -113,4 +114,10 @@ export class ProductResponseDto {
   codigos!: string[];
   created_at!: Date;
   updated_at!: Date;
+}
+
+export class ProductListQueryDto extends PaginationQueryDto {
+  @IsOptional()
+  @IsString()
+  search?: string;
 }
