@@ -19,6 +19,9 @@ export class SalePaymentMethodEntity {
   @Column({ type: "varchar", length: 20 })
   method!: PaymentMethod;
 
+  @Column({ type: "numeric", precision: 12, scale: 2 })
+  amount!: string;
+
   @ManyToOne(() => SaleEntity, (sale) => sale.payment_methods, {
     onDelete: "CASCADE",
   })

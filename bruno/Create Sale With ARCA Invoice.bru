@@ -27,7 +27,7 @@ body:json {
       }
     ],
     "payment_methods": [
-      "cash"
+      { "method": "cash", "amount": "3750.75" }
     ],
     "invoice_requested": true
   }
@@ -51,7 +51,7 @@ tests {
   });
   
   test("ARCA invoice was issued", function() {
-    expect(res.body.payment_methods).to.deep.equal(["cash"]);
+    expect(res.body.payment_methods).to.deep.equal([{ method: "cash", amount: "3750.75" }]);
     expect(res.body.split_ticket_groups).to.equal(null);
     expect(res.body.invoice_status).to.equal("issued");
     expect(res.body.cae).to.be.a("string").and.not.empty;

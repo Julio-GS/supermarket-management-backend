@@ -2,6 +2,11 @@ export type InvoiceStatus = "none" | "issued" | "failed";
 export const PAYMENT_METHODS = ["cash", "transfer", "card", "qr"] as const;
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 
+export interface PaymentMethodAllocation {
+  method: PaymentMethod;
+  amount: string;
+}
+
 export interface SaleSplitTicketItemInput {
   product_id: string;
   quantity: number;
@@ -33,7 +38,7 @@ export class Sale {
   id!: string;
   user_id!: string;
   total!: string;
-  payment_methods!: PaymentMethod[];
+  payment_methods!: PaymentMethodAllocation[];
   items!: SaleItem[];
   split_ticket_groups?: SaleSplitTicketGroup[] | null;
   invoice_status!: InvoiceStatus;

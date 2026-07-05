@@ -26,7 +26,10 @@ tests {
   test("returns the requested split-ticket sale", function() {
     expect(res.body.id).to.equal(bru.getVar("splitTicketSaleId"));
     expect(res.body.total).to.equal("7501.50");
-    expect(res.body.payment_methods).to.deep.equal(["cash", "card"]);
+    expect(res.body.payment_methods).to.deep.equal([
+      { method: "cash", amount: "3750.75" },
+      { method: "card", amount: "3750.75" },
+    ]);
     expect(res.body.split_ticket_groups).to.be.an("array");
     expect(res.body.split_ticket_groups).to.have.lengthOf(2);
     expect(res.body.split_ticket_groups[0].label).to.equal("A");

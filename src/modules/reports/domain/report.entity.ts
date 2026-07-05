@@ -12,7 +12,7 @@ export interface PaymentMethodBreakdown {
 export interface TopProduct {
   productId: string;
   detalle: string;
-  unitsSold: number;
+  units_sold: number;
 }
 
 export interface BusinessReport {
@@ -26,5 +26,5 @@ export interface BusinessReport {
 export interface ReportAggregateData {
   totalCollectedAmount: string;
   paymentMethodBreakdown: { method: PaymentMethod; amount: string }[];
-  topProducts: { productId: string; detalle: string; unitsSold: number }[];
+  topProducts: { productId: string; detalle: string; units_sold: number }[];
 }

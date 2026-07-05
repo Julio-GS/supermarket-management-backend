@@ -10,6 +10,7 @@ import {
 import {
   PAYMENT_METHODS,
   PaymentMethod,
+  PaymentMethodAllocation,
   Sale,
   SaleItem,
   SaleSplitTicketGroup,
@@ -33,9 +34,11 @@ const PAYMENT_METHOD_ORDER = new Map<PaymentMethod, number>(
   PAYMENT_METHODS.map((method, index) => [method, index]),
 );
 
-function sortPaymentMethods(methods: PaymentMethod[]): PaymentMethod[] {
-  return [...methods].sort(
-    (a, b) => PAYMENT_METHOD_ORDER.get(a)! - PAYMENT_METHOD_ORDER.get(b)!,
+function sortPaymentMethodAllocations(
+  allocations: PaymentMethodAllocation[],
+): PaymentMethodAllocation[] {
+  return [...allocations].sort(
+    (a, b) => PAYMENT_METHOD_ORDER.get(a.method)! - PAYMENT_METHOD_ORDER.get(b.method)!,
   );
 }
 
@@ -228,8 +231,11 @@ export class TypeOrmSaleRepository extends SaleRepositoryPort {
       user_id: input.user_id,
       total: input.total,
       invoice_status: input.invoice_status,
-      payment_methods: input.payment_methods.map((method) =>
-        this.paymentMethodRepo.create({ method }),
+      payment_methods: input.payment_methods.map((allocation) =>
+        this.paymentMethodRepo.create({
+          method: allocation.method,
+          amount: allocation.amount,
+        }),
       ),
       split_ticket_allocations: buildSplitTicketAllocations(
         saleId,
@@ -317,6 +323,7 @@ export class TypeOrmSaleRepository extends SaleRepositoryPort {
         "payment_method.id",
         "payment_method.sale_id",
         "payment_method.method",
+        "payment_method.amount",
       ])
       .addSelect([
         "split_ticket_allocation.id",
@@ -333,9 +340,12 @@ export class TypeOrmSaleRepository extends SaleRepositoryPort {
     sale.id = entity.id;
     sale.user_id = entity.user_id;
     sale.total = entity.total;
-    sale.payment_methods = sortPaymentMethods(
+    sale.payment_methods = sortPaymentMethodAllocations(
       (entity.payment_methods ?? []).map(
-        (paymentMethod) => paymentMethod.method,
+        (paymentMethod) => ({
+          method: paymentMethod.method,
+          amount: paymentMethod.amount,
+        }),
       ),
     );
     sale.split_ticket_groups = buildSplitTicketGroups(entity);

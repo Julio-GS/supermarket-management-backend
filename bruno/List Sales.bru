@@ -31,7 +31,7 @@ tests {
     const sale = res.body.find((item) => item.id === bru.getVar("saleId"));
 
     expect(sale).to.exist;
-    expect(sale.payment_methods).to.deep.equal(["cash"]);
+    expect(sale.payment_methods).to.deep.equal([{ method: "cash", amount: "7501.50" }]);
     expect(sale.split_ticket_groups).to.equal(null);
     expect(sale.invoice_status).to.equal("none");
   });

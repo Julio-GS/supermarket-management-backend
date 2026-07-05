@@ -14,8 +14,8 @@ function makeAggregate(
       { method: "card", amount: "400.00" },
     ],
     topProducts: [
-      { productId: "p1", detalle: "Milk", unitsSold: 10 },
-      { productId: "p2", detalle: "Bread", unitsSold: 5 },
+      { productId: "p1", detalle: "Milk", units_sold: 10 },
+      { productId: "p2", detalle: "Bread", units_sold: 5 },
     ],
     ...overrides,
   };
@@ -138,7 +138,7 @@ describe("GetBusinessReportUseCase", () => {
     const allProducts = Array.from({ length: 15 }, (_, i) => ({
       productId: `p${i}`,
       detalle: `Product ${i}`,
-      unitsSold: 100 - i,
+      units_sold: 100 - i,
     }));
     reportRepo.getBusinessReport.mockResolvedValue(
       makeAggregate({ topProducts: allProducts }),

@@ -6,6 +6,7 @@ import { IssueArcaInvoiceUseCase } from "./issue-arca-invoice.use-case";
 import {
   PAYMENT_METHODS,
   PaymentMethod,
+  PaymentMethodAllocation,
   Sale,
   SaleItemSplitTicketInput,
   SaleSplitTicketGroupInput,
@@ -24,7 +25,7 @@ export interface CreateSaleItemInput extends SaleSplitTicketItemInput {
 export interface CreateSaleInput {
   user_id: string;
   items: CreateSaleItemInput[];
-  payment_methods: PaymentMethod[];
+  payment_methods: PaymentMethodAllocation[];
   split_ticket_groups?: SaleSplitTicketGroupInput[] | null;
   invoice_requested?: boolean;
 }
@@ -33,20 +34,30 @@ const ALLOWED_PAYMENT_METHODS = new Set<PaymentMethod>(PAYMENT_METHODS);
 const DEFAULT_SPLIT_GROUP_LABELS = ["A", "B"] as const;
 
 function validatePaymentMethods(
-  payment_methods: PaymentMethod[] | undefined,
-): PaymentMethod[] {
+  payment_methods: PaymentMethodAllocation[] | undefined,
+): PaymentMethodAllocation[] {
   if (!Array.isArray(payment_methods) || payment_methods.length === 0) {
     throw new ValidationError("Sale must contain at least one payment method");
   }
 
-  for (const method of payment_methods) {
-    if (!ALLOWED_PAYMENT_METHODS.has(method)) {
-      throw new ValidationError(`Unsupported payment method: ${method}`);
-    }
-  }
+  const methods = new Set<PaymentMethod>();
 
-  if (new Set(payment_methods).size !== payment_methods.length) {
-    throw new ValidationError("Sale payment methods must be unique");
+  for (const allocation of payment_methods) {
+    if (!allocation.method || !ALLOWED_PAYMENT_METHODS.has(allocation.method)) {
+      throw new ValidationError(`Unsupported payment method: ${allocation.method}`);
+    }
+
+    if (typeof allocation.amount !== "string" || allocation.amount === "") {
+      throw new ValidationError(
+        `Payment method ${allocation.method} must include a valid amount`,
+      );
+    }
+
+    if (methods.has(allocation.method)) {
+      throw new ValidationError("Sale payment methods must be unique");
+    }
+
+    methods.add(allocation.method);
   }
 
   return payment_methods;

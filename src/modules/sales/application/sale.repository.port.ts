@@ -1,7 +1,7 @@
 import {
   Sale,
   InvoiceStatus,
-  PaymentMethod,
+  PaymentMethodAllocation,
   SaleSplitTicketGroupInput,
 } from "../domain/sale.entity";
 import { Page, PaginationOptions } from "../../../shared/read-model/page";
@@ -19,7 +19,7 @@ export interface SaleCreateInput {
   user_id: string;
   items: SaleItemCreateData[];
   total: string;
-  payment_methods: PaymentMethod[];
+  payment_methods: PaymentMethodAllocation[];
   split_ticket_groups?: SaleSplitTicketGroupInput[] | null;
   invoice_status: InvoiceStatus;
   cae?: string | null;

@@ -54,21 +54,11 @@ export class TypeOrmReportRepository extends ReportRepositoryPort {
       .createQueryBuilder()
       .select("spm.method", "method")
       .addSelect(
-        "SUM(sales.total::numeric / COALESCE(pmc.method_count, 1))::text",
+        "SUM(spm.amount::numeric)::text",
         "amount",
       )
-      .from("sales", "sales")
-      .innerJoin("sale_payment_methods", "spm", "spm.sale_id = sales.id")
-      .innerJoin(
-        (subQuery) =>
-          subQuery
-            .select("spm2.sale_id", "sale_id")
-            .addSelect("COUNT(*)::int", "method_count")
-            .from("sale_payment_methods", "spm2")
-            .groupBy("spm2.sale_id"),
-        "pmc",
-        "pmc.sale_id = sales.id",
-      )
+      .from("sale_payment_methods", "spm")
+      .innerJoin("sales", "sales", "sales.id = spm.sale_id")
       .where("sales.created_at >= :startsAt", { startsAt })
       .andWhere("sales.created_at <= :endsAt", { endsAt })
       .groupBy("spm.method")
@@ -84,12 +74,12 @@ export class TypeOrmReportRepository extends ReportRepositoryPort {
   private async queryTopProducts(
     startsAt: Date,
     endsAt: Date,
-  ): Promise<{ productId: string; detalle: string; unitsSold: number }[]> {
+  ): Promise<{ productId: string; detalle: string; units_sold: number }[]> {
     const results = await this.em
       .createQueryBuilder()
       .select("si.product_id", "productId")
       .addSelect("p.detalle", "detalle")
-      .addSelect("SUM(si.quantity)::int", "unitsSold")
+      .addSelect("SUM(si.quantity)::int", "units_sold")
       .from("sale_items", "si")
       .innerJoin("sales", "sales", "sales.id = si.sale_id")
       .innerJoin("products", "p", "p.id = si.product_id")
@@ -97,17 +87,17 @@ export class TypeOrmReportRepository extends ReportRepositoryPort {
       .andWhere("sales.created_at <= :endsAt", { endsAt })
       .groupBy("si.product_id")
       .addGroupBy("p.detalle")
-      .orderBy("unitsSold", "DESC")
+      .orderBy("units_sold", "DESC")
       .getRawMany<{
         productId: string;
         detalle: string;
-        unitsSold: number;
+        units_sold: number;
       }>();
 
     return results.map((r) => ({
       productId: r.productId,
       detalle: r.detalle,
-      unitsSold: Number(r.unitsSold) || 0,
+      units_sold: Number(r.units_sold) || 0,
     }));
   }
 }

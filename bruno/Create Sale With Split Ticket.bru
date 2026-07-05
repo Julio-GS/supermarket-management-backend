@@ -27,8 +27,8 @@ body:json {
       }
     ],
     "payment_methods": [
-      "cash",
-      "card"
+      { "method": "cash", "amount": "3750.75" },
+      { "method": "card", "amount": "3750.75" }
     ],
     "split_ticket_groups": [
       {
@@ -55,7 +55,7 @@ body:json {
 
 vars:pre-request {
   baseUrl: http://localhost:3000/api/v1
-  productId: 20072281-3eec-458c-b1a2-1da465024d90
+  productId: 00fe6a18-ef9b-46c4-a7be-8df87d9255e9
 }
 
 script:post-response {
@@ -69,7 +69,10 @@ tests {
   
   test("returns split ticket groups", function() {
     expect(res.body.total).to.equal("7501.50");
-    expect(res.body.payment_methods).to.deep.equal(["cash", "card"]);
+    expect(res.body.payment_methods).to.deep.equal([
+      { method: "cash", amount: "3750.75" },
+      { method: "card", amount: "3750.75" },
+    ]);
     expect(res.body.split_ticket_groups).to.be.an("array");
     expect(res.body.split_ticket_groups).to.have.lengthOf(2);
     expect(res.body.split_ticket_groups[0].label).to.equal("A");

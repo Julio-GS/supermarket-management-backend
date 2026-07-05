@@ -27,14 +27,14 @@ body:json {
       }
     ],
     "payment_methods": [
-      "cash"
+      { "method": "card", "amount": "5800" }
     ]
   }
 }
 
 vars:pre-request {
   baseUrl: http://localhost:3000/api/v1
-  productId: 7a771024-7206-4938-ba3d-40d2fed335fd
+  productId: 00fe6a18-ef9b-46c4-a7be-8df87d9255e9
 }
 
 script:post-response {
@@ -56,7 +56,7 @@ tests {
   });
   
   test("sale is non-fiscal by default", function() {
-    expect(res.body.payment_methods).to.deep.equal(["cash"]);
+    expect(res.body.payment_methods).to.deep.equal([{ method: "cash", amount: "7501.50" }]);
     expect(res.body.split_ticket_groups).to.equal(null);
     expect(res.body.invoice_status).to.equal("none");
     expect(res.body.cae).to.equal(null);

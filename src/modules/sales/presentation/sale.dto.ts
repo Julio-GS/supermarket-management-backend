@@ -16,6 +16,15 @@ import {
 } from "class-validator";
 import { PAYMENT_METHODS, PaymentMethod } from "../domain/sale.entity";
 
+export class PaymentMethodAllocationDto {
+  @IsIn(PAYMENT_METHODS)
+  method!: PaymentMethod;
+
+  @IsString()
+  @IsNotEmpty()
+  amount!: string;
+}
+
 export class SaleItemSplitTicketDto {
   @IsInt()
   @Min(0)
@@ -80,9 +89,9 @@ export class CreateSaleDto {
 
   @IsArray()
   @ArrayMinSize(1)
-  @ArrayUnique()
-  @IsIn(PAYMENT_METHODS, { each: true })
-  payment_methods!: PaymentMethod[];
+  @ValidateNested({ each: true })
+  @Type(() => PaymentMethodAllocationDto)
+  payment_methods!: PaymentMethodAllocationDto[];
 
   @IsOptional()
   @IsBoolean()
@@ -114,7 +123,7 @@ export class SaleResponseDto {
   id!: string;
   user_id!: string;
   total!: string;
-  payment_methods!: PaymentMethod[];
+  payment_methods!: PaymentMethodAllocationDto[];
   split_ticket_groups!: SaleSplitTicketGroupResponseDto[] | null;
   items!: SaleItemResponseDto[];
   invoice_status!: string;

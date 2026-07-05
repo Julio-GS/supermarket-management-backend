@@ -5,6 +5,7 @@ import { AddArcaInvoiceFieldsToSales1789929600000 } from "../database/migrations
 import { AddPaymentMethodsToSales1790000000000 } from "../database/migrations/1790000000000-AddPaymentMethodsToSales";
 import { AddSplitTicketAllocationsToSales1791000000000 } from "../database/migrations/1791000000000-AddSplitTicketAllocationsToSales";
 import { AddReportReadIndexes1792000000000 } from "../database/migrations/1792000000000-AddReportReadIndexes";
+import { AddAmountToSalePaymentMethods1793000000000 } from "../database/migrations/1793000000000-AddAmountToSalePaymentMethods";
 
 export const databaseConfig = registerAs(
   "database",
@@ -23,6 +24,7 @@ export const databaseConfig = registerAs(
       AddPaymentMethodsToSales1790000000000,
       AddSplitTicketAllocationsToSales1791000000000,
       AddReportReadIndexes1792000000000,
+      AddAmountToSalePaymentMethods1793000000000,
     ],
     migrationsRun: process.env.NODE_ENV !== "test",
   }),

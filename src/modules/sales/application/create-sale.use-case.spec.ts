@@ -34,7 +34,7 @@ function buildSale(overrides: Partial<Sale> = {}): Sale {
     id: "sale-id",
     user_id: "user-id",
     total: "121.00",
-    payment_methods: ["cash"],
+    payment_methods: [{ method: "cash", amount: "121.00" }],
     split_ticket_groups: null,
     items: [
       {
@@ -107,7 +107,7 @@ describe("CreateSaleUseCase", () => {
     const result = await useCase.execute({
       user_id: "user-id",
       items: [{ product_id: product.id, quantity: 1 }],
-      payment_methods: ["cash"],
+      payment_methods: [{ method: "cash", amount: "121.00" }],
     });
 
     expect(result.total).toBe("121.00");
@@ -130,7 +130,7 @@ describe("CreateSaleUseCase", () => {
     await useCase.execute({
       user_id: "user-id",
       items: [{ product_id: product.id, quantity: 1 }],
-      payment_methods: ["cash"],
+      payment_methods: [{ method: "cash", amount: "121.00" }],
     });
 
     expect(issueInvoice.issue).not.toHaveBeenCalled();
@@ -158,7 +158,7 @@ describe("CreateSaleUseCase", () => {
       user_id: "user-id",
       items: [{ product_id: product.id, quantity: 1 }],
       invoice_requested: true,
-      payment_methods: ["cash"],
+      payment_methods: [{ method: "cash", amount: "121.00" }],
     });
 
     expect(issueInvoice.issue).toHaveBeenCalledWith([{ product, quantity: 1 }]);
@@ -185,7 +185,7 @@ describe("CreateSaleUseCase", () => {
         user_id: "user-id",
         items: [{ product_id: product.id, quantity: 1 }],
         invoice_requested: true,
-        payment_methods: ["cash"],
+        payment_methods: [{ method: "cash", amount: "121.00" }],
       }),
     ).rejects.toBeInstanceOf(ValidationError);
 
@@ -201,7 +201,7 @@ describe("CreateSaleUseCase", () => {
     const result = await useCase.execute({
       user_id: "user-id",
       items: [{ product_id: product.id, quantity: 1 }],
-      payment_methods: ["cash"],
+      payment_methods: [{ method: "cash", amount: "121.00" }],
     });
 
     expect(result.invoice_status).toBe("none");
@@ -211,37 +211,57 @@ describe("CreateSaleUseCase", () => {
   it("persists a single payment method for a sale", async () => {
     const product = buildProduct();
     products.findByIdsForSale.mockResolvedValue([product]);
-    sales.create.mockResolvedValue(buildSale({ payment_methods: ["cash"] }));
+    sales.create.mockResolvedValue(
+      buildSale({ payment_methods: [{ method: "cash", amount: "100.00" }] }),
+    );
 
     const result = await useCase.execute({
       user_id: "user-id",
       items: [{ product_id: product.id, quantity: 1 }],
-      payment_methods: ["cash"],
+      payment_methods: [{ method: "cash", amount: "100.00" }],
     });
 
     expect(sales.create).toHaveBeenCalledWith(
-      expect.objectContaining({ payment_methods: ["cash"] }),
+      expect.objectContaining({
+        payment_methods: [{ method: "cash", amount: "100.00" }],
+      }),
     );
-    expect(result.payment_methods).toEqual(["cash"]);
+    expect(result.payment_methods).toEqual([{ method: "cash", amount: "100.00" }]);
   });
 
   it("persists multiple payment methods for a sale", async () => {
     const product = buildProduct();
     products.findByIdsForSale.mockResolvedValue([product]);
     sales.create.mockResolvedValue(
-      buildSale({ payment_methods: ["cash", "card"] }),
+      buildSale({
+        payment_methods: [
+          { method: "cash", amount: "80.00" },
+          { method: "card", amount: "41.00" },
+        ],
+      }),
     );
 
     const result = await useCase.execute({
       user_id: "user-id",
       items: [{ product_id: product.id, quantity: 1 }],
-      payment_methods: ["cash", "card"],
+      payment_methods: [
+        { method: "cash", amount: "80.00" },
+        { method: "card", amount: "41.00" },
+      ],
     });
 
     expect(sales.create).toHaveBeenCalledWith(
-      expect.objectContaining({ payment_methods: ["cash", "card"] }),
+      expect.objectContaining({
+        payment_methods: [
+          { method: "cash", amount: "80.00" },
+          { method: "card", amount: "41.00" },
+        ],
+      }),
     );
-    expect(result.payment_methods).toEqual(["cash", "card"]);
+    expect(result.payment_methods).toEqual([
+      { method: "cash", amount: "80.00" },
+      { method: "card", amount: "41.00" },
+    ]);
   });
 
   it("persists explicit split ticket groups and returns them", async () => {
@@ -286,7 +306,7 @@ describe("CreateSaleUseCase", () => {
     const result = await useCase.execute({
       user_id: "user-id",
       items: [{ product_id: product.id, quantity: 3 }],
-      payment_methods: ["cash"],
+      payment_methods: [{ method: "cash", amount: "363.00" }],
       split_ticket_groups: splitTicketGroups,
     });
 
@@ -343,7 +363,7 @@ describe("CreateSaleUseCase", () => {
           },
         },
       ],
-      payment_methods: ["cash"],
+      payment_methods: [{ method: "cash", amount: "484.00" }],
     });
 
     expect(sales.create).toHaveBeenCalledWith(
@@ -365,7 +385,7 @@ describe("CreateSaleUseCase", () => {
       useCase.execute({
         user_id: "user-id",
         items: [{ product_id: product.id, quantity: 1 }],
-        payment_methods: ["cash"],
+        payment_methods: [{ method: "cash", amount: "121.00" }],
         split_ticket_groups: [
           { label: "A", items: [{ product_id: product.id, quantity: 1 }] },
         ],
@@ -383,7 +403,7 @@ describe("CreateSaleUseCase", () => {
       useCase.execute({
         user_id: "user-id",
         items: [{ product_id: product.id, quantity: 1 }],
-        payment_methods: ["cash"],
+        payment_methods: [{ method: "cash", amount: "121.00" }],
         split_ticket_groups: [
           { label: "A", items: [{ product_id: product.id, quantity: 1 }] },
           { label: "A", items: [{ product_id: product.id, quantity: 0 }] },
@@ -402,7 +422,7 @@ describe("CreateSaleUseCase", () => {
       useCase.execute({
         user_id: "user-id",
         items: [{ product_id: product.id, quantity: 3 }],
-        payment_methods: ["cash"],
+        payment_methods: [{ method: "cash", amount: "363.00" }],
         split_ticket_groups: [
           { label: "A", items: [{ product_id: product.id, quantity: 2 }] },
           { label: "B", items: [{ product_id: product.id, quantity: 2 }] },
@@ -421,7 +441,7 @@ describe("CreateSaleUseCase", () => {
       useCase.execute({
         user_id: "user-id",
         items: [{ product_id: product.id, quantity: 1 }],
-        payment_methods: ["cash"],
+        payment_methods: [{ method: "cash", amount: "121.00" }],
         split_ticket_groups: [
           { label: "A", items: [{ product_id: product.id, quantity: 1 }] },
           {
@@ -459,7 +479,10 @@ describe("CreateSaleUseCase", () => {
     const input = {
       user_id: "user-id",
       items: [{ product_id: product.id, quantity: 1 }],
-      payment_methods: ["cash", "bitcoin"],
+      payment_methods: [
+        { method: "cash", amount: "50.00" },
+        { method: "bitcoin", amount: "71.00" },
+      ],
     } as unknown as CreateSaleInput;
 
     await expect(
@@ -476,7 +499,10 @@ describe("CreateSaleUseCase", () => {
     const input = {
       user_id: "user-id",
       items: [{ product_id: product.id, quantity: 1 }],
-      payment_methods: ["cash", "cash"],
+      payment_methods: [
+        { method: "cash", amount: "60.00" },
+        { method: "cash", amount: "61.00" },
+      ],
     } as CreateSaleInput;
 
     await expect(
@@ -494,7 +520,7 @@ describe("CreateSaleUseCase", () => {
         user_id: "user-id",
         items: [{ product_id: "missing-id", quantity: 1 }],
         invoice_requested: true,
-        payment_methods: ["cash"],
+        payment_methods: [{ method: "cash", amount: "121.00" }],
       }),
     ).rejects.toBeInstanceOf(NotFoundError);
 
@@ -512,7 +538,7 @@ describe("CreateSaleUseCase", () => {
         user_id: "user-id",
         items: [{ product_id: product.id, quantity: 1 }],
         invoice_requested: true,
-        payment_methods: ["cash"],
+        payment_methods: [{ method: "cash", amount: "121.00" }],
       }),
     ).rejects.toThrow("ARCA timeout");
 
@@ -530,7 +556,7 @@ describe("CreateSaleUseCase", () => {
         { product_id: product.id, quantity: 1 },
         { product_id: product.id, quantity: 1 },
       ],
-      payment_methods: ["cash"],
+      payment_methods: [{ method: "cash", amount: "242.00" }],
     });
 
     expect(products.findByIdsForSale).toHaveBeenCalledWith([product.id]);

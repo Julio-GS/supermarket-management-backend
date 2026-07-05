@@ -28,7 +28,11 @@ bruno/
 ├── Create Sale With Split Ticket.bru
 ├── Get Sale With Split Ticket.bru
 ├── Create Sale With ARCA Invoice.bru
-└── Protected Without Token.bru
+├── Protected Without Token.bru
+├── List Sales Paginated.bru
+├── Get Business Report - Day.bru
+├── Get Business Report - Week.bru
+└── Get Business Report - Month.bru
 ```
 
 ## Running with the Bruno CLI
@@ -85,5 +89,9 @@ Collection variables (`username`, `password`, `token`, `productId`, `saleId`, `s
 12. **Get Sale With Split Ticket** — fetches the split-ticket sale by id and verifies the persisted allocation.
 13. **Create Sale With ARCA Invoice** — creates a fiscal sale and returns ARCA invoice data.
 14. **Protected Without Token** — calls a protected route with no token and expects `401`.
+15. **List Sales Paginated** — lists sales with pagination query and verifies the `{ data, meta }` response and payment method allocations.
+16. **Get Business Report - Day** — fetches today's business report with payment method breakdown and top products.
+17. **Get Business Report - Week** — fetches the current week's business report.
+18. **Get Business Report - Month** — fetches the current month's business report with descending payment method sort verification.
 
 > No `DATABASE_URL` or other secrets are stored in these files.

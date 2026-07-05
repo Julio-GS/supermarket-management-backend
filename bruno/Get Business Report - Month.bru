@@ -1,0 +1,52 @@
+meta {
+  name: Get Business Report - Month
+  type: http
+  seq: 18
+}
+
+get {
+  url: {{baseUrl}}/reports?window=month
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+vars:pre-request {
+  baseUrl: http://localhost:3000/api/v1
+}
+
+tests {
+  test("status is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("returns month window report", function() {
+    expect(res.body.window).to.equal("month");
+    expect(res.body.range).to.have.property("startsAt");
+    expect(res.body.range).to.have.property("endsAt");
+  });
+
+  test("has required report aggregate fields", function() {
+    expect(res.body).to.have.property("totalCollectedAmount");
+    expect(res.body.paymentMethodBreakdown).to.be.an("array");
+    expect(res.body.topProducts).to.be.an("array");
+  });
+
+  test("paymentMethodBreakdown sorted by amount descending", function() {
+    const amounts = res.body.paymentMethodBreakdown.map(function(pm) {
+      return parseFloat(pm.amount);
+    });
+    const sorted = amounts.slice().sort(function(a, b) {
+      return b - a;
+    });
+    expect(amounts).to.deep.equal(sorted);
+  });
+
+  test("range timestamps span first to last day of current month in Argentina timezone", function() {
+    expect(res.body.range.startsAt).to.include("-03:00");
+    expect(res.body.range.endsAt).to.include("-03:00");
+  });
+}

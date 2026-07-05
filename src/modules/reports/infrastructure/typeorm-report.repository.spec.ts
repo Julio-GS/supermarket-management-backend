@@ -74,8 +74,8 @@ describe("TypeOrmReportRepository", () => {
     qb.getRawMany
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
-        { productId: "p1", detalle: "Milk", unitsSold: 50 },
-        { productId: "p2", detalle: "Bread", unitsSold: 30 },
+        { productId: "p1", detalle: "Milk", units_sold: 50 },
+        { productId: "p2", detalle: "Bread", units_sold: 30 },
       ]);
 
     const result = await repository.getBusinessReport(startsAt, endsAt);
@@ -83,7 +83,7 @@ describe("TypeOrmReportRepository", () => {
     expect(result.topProducts).toHaveLength(2);
     expect(result.topProducts[0].productId).toBe("p1");
     expect(result.topProducts[0].detalle).toBe("Milk");
-    expect(result.topProducts[0].unitsSold).toBe(50);
+    expect(result.topProducts[0].units_sold).toBe(50);
   });
 
   it("filters all queries by the provided date range", async () => {

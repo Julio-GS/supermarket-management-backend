@@ -632,9 +632,9 @@ describe("AppController (e2e)", () => {
     expect(res.body.topProducts).toHaveLength(2);
     // B should be first (more units sold)
     expect(res.body.topProducts[0].productId).toBe(productB.body.id);
-    expect(res.body.topProducts[0].unitsSold).toBe(10);
+    expect(res.body.topProducts[0].units_sold).toBe(10);
     expect(res.body.topProducts[1].productId).toBe(productA.body.id);
-    expect(res.body.topProducts[1].unitsSold).toBe(5);
+    expect(res.body.topProducts[1].units_sold).toBe(5);
   });
 
   it("/reports (GET) includes product detalle in top products", async () => {

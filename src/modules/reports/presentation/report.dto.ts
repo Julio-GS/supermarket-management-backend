@@ -22,7 +22,7 @@ export class TopProductDto {
   @IsString()
   detalle!: string;
 
-  unitsSold!: number;
+  units_sold!: number;
 }
 
 export class ReportResponseDto {

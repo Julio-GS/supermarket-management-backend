@@ -1,0 +1,52 @@
+meta {
+  name: List Sales Paginated
+  type: http
+  seq: 15
+}
+
+get {
+  url: {{baseUrl}}/sales?page=1&limit=20&sort=created_at:desc
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+vars:pre-request {
+  baseUrl: http://localhost:3000/api/v1
+}
+
+tests {
+  test("status is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("returns paginated response with data and meta", function() {
+    expect(res.body.data).to.be.an("array");
+    expect(res.body.meta).to.be.an("object");
+    expect(res.body.meta.page).to.equal(1);
+    expect(res.body.meta.limit).to.equal(20);
+    expect(res.body.meta).to.have.property("total");
+    expect(res.body.meta).to.have.property("totalPages");
+    expect(res.body.meta).to.have.property("hasNext");
+  });
+
+  test("payment_methods in data use allocation shape (method + amount)", function() {
+    if (res.body.data.length > 0) {
+      const sale = res.body.data[0];
+      expect(sale.payment_methods).to.be.an("array");
+      sale.payment_methods.forEach(function(pm) {
+        expect(pm).to.have.property("method");
+        expect(pm).to.have.property("amount");
+        expect(pm.method).to.be.oneOf(["cash", "transfer", "card", "qr"]);
+        expect(pm.amount).to.be.a("string");
+      });
+    }
+  });
+
+  test("meta.total matches data length or is larger", function() {
+    expect(res.body.meta.total).to.be.at.least(res.body.data.length);
+  });
+}

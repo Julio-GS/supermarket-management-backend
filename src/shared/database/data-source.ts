@@ -5,6 +5,7 @@ import { AddArcaInvoiceFieldsToSales1789929600000 } from "./migrations/178992960
 import { AddPaymentMethodsToSales1790000000000 } from "./migrations/1790000000000-AddPaymentMethodsToSales";
 import { AddSplitTicketAllocationsToSales1791000000000 } from "./migrations/1791000000000-AddSplitTicketAllocationsToSales";
 import { AddReportReadIndexes1792000000000 } from "./migrations/1792000000000-AddReportReadIndexes";
+import { AddAmountToSalePaymentMethods1793000000000 } from "./migrations/1793000000000-AddAmountToSalePaymentMethods";
 
 export default new DataSource({
   type: "postgres",
@@ -19,6 +20,7 @@ export default new DataSource({
     AddPaymentMethodsToSales1790000000000,
     AddSplitTicketAllocationsToSales1791000000000,
     AddReportReadIndexes1792000000000,
+    AddAmountToSalePaymentMethods1793000000000,
   ],
   migrationsRun: false,
   synchronize: false,

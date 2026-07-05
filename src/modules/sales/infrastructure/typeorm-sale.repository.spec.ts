@@ -62,6 +62,7 @@ describe("TypeOrmSaleRepository", () => {
       "payment_method.id",
       "payment_method.sale_id",
       "payment_method.method",
+      "payment_method.amount",
     ]);
     expect(qb.addSelect).toHaveBeenCalledWith([
       "split_ticket_allocation.id",
@@ -146,7 +147,10 @@ describe("TypeOrmSaleRepository", () => {
       ],
       total: "363.00",
       invoice_status: "none",
-      payment_methods: ["cash", "card"],
+      payment_methods: [
+        { method: "cash", amount: "200.00" },
+        { method: "card", amount: "163.00" },
+      ],
       split_ticket_groups: [
         { label: "A", items: [{ product_id: "product-id", quantity: 2 }] },
         { label: "B", items: [{ product_id: "product-id", quantity: 1 }] },
@@ -169,8 +173,8 @@ describe("TypeOrmSaleRepository", () => {
       expect.objectContaining({
         id: saleId,
         payment_methods: [
-          { method: "cash" },
-          { method: "card" },
+          { method: "cash", amount: "200.00" },
+          { method: "card", amount: "163.00" },
         ],
         split_ticket_allocations: [
           {
@@ -188,7 +192,10 @@ describe("TypeOrmSaleRepository", () => {
         ],
       }),
     );
-    expect(result.payment_methods).toEqual(["cash", "card"]);
+    expect(result.payment_methods).toEqual([
+      { method: "cash", amount: "60.50" },
+      { method: "card", amount: "60.50" },
+    ]);
     expect(result.split_ticket_groups).toEqual([
       {
         label: "A",
@@ -343,8 +350,8 @@ function buildSaleEntity(
       } as SaleItemEntity,
     ],
     payment_methods: [
-      { id: "pm-1", sale_id: "sale-id", method: "cash" } as SalePaymentMethodEntity,
-      { id: "pm-2", sale_id: "sale-id", method: "card" } as SalePaymentMethodEntity,
+      { id: "pm-1", sale_id: "sale-id", method: "cash", amount: "60.50" } as SalePaymentMethodEntity,
+      { id: "pm-2", sale_id: "sale-id", method: "card", amount: "60.50" } as SalePaymentMethodEntity,
     ],
     split_ticket_allocations: [] as SaleTicketAllocationEntity[],
     created_at: new Date("2024-01-01T00:00:00.000Z"),

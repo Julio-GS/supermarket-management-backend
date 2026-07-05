@@ -1,0 +1,54 @@
+meta {
+  name: Get Business Report - Week
+  type: http
+  seq: 17
+}
+
+get {
+  url: {{baseUrl}}/reports?window=week
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+vars:pre-request {
+  baseUrl: http://localhost:3000/api/v1
+}
+
+tests {
+  test("status is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("returns week window report", function() {
+    expect(res.body.window).to.equal("week");
+    expect(res.body.range).to.have.property("startsAt");
+    expect(res.body.range).to.have.property("endsAt");
+  });
+
+  test("has required report aggregate fields", function() {
+    expect(res.body).to.have.property("totalCollectedAmount");
+    expect(res.body.paymentMethodBreakdown).to.be.an("array");
+    expect(res.body.topProducts).to.be.an("array");
+  });
+
+  test("paymentMethodBreakdown items have method and amount", function() {
+    res.body.paymentMethodBreakdown.forEach(function(pm) {
+      expect(pm).to.have.property("method");
+      expect(pm).to.have.property("amount");
+      expect(pm.method).to.be.oneOf(["cash", "transfer", "card", "qr"]);
+    });
+  });
+
+  test("topProducts is at most 10 items", function() {
+    expect(res.body.topProducts.length).to.be.at.most(10);
+  });
+
+  test("range timestamps span Monday to Sunday in Argentina timezone", function() {
+    expect(res.body.range.startsAt).to.include("-03:00");
+    expect(res.body.range.endsAt).to.include("-03:00");
+  });
+}
