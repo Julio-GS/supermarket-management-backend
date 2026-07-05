@@ -7,6 +7,8 @@ import {
   OneToMany,
 } from "typeorm";
 import { SaleItemEntity } from "./typeorm-sale-item.entity";
+import { SalePaymentMethodEntity } from "./typeorm-sale-payment-method.entity";
+import { SaleTicketAllocationEntity } from "./typeorm-sale-ticket-allocation.entity";
 
 @Entity("sales")
 export class SaleEntity {
@@ -53,4 +55,14 @@ export class SaleEntity {
 
   @OneToMany(() => SaleItemEntity, (item) => item.sale, { cascade: true })
   items!: SaleItemEntity[];
+
+  @OneToMany(() => SalePaymentMethodEntity, (method) => method.sale, {
+    cascade: true,
+  })
+  payment_methods!: SalePaymentMethodEntity[];
+
+  @OneToMany(() => SaleTicketAllocationEntity, (allocation) => allocation.sale, {
+    cascade: true,
+  })
+  split_ticket_allocations!: SaleTicketAllocationEntity[];
 }

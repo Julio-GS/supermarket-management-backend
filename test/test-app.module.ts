@@ -8,6 +8,7 @@ import { AuthModule } from "../src/modules/auth/auth.module";
 import { UsersModule } from "../src/modules/users/users.module";
 import { ProductsModule } from "../src/modules/products/products.module";
 import { SalesModule } from "../src/modules/sales/sales.module";
+import { ReportsModule } from "../src/modules/reports/reports.module";
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { SalesModule } from "../src/modules/sales/sales.module";
     UsersModule,
     ProductsModule,
     SalesModule,
+    ReportsModule,
   ],
 })
 export class TestAppModule {}

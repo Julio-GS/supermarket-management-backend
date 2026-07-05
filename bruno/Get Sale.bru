@@ -25,5 +25,8 @@ tests {
   
   test("returns the requested sale", function() {
     expect(res.body.id).to.equal(bru.getVar("saleId"));
+    expect(res.body.payment_methods).to.deep.equal(["cash"]);
+    expect(res.body.split_ticket_groups).to.equal(null);
+    expect(res.body.invoice_status).to.equal("none");
   });
 }

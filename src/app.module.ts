@@ -10,6 +10,7 @@ import { AuthModule } from "./modules/auth/auth.module";
 import { UsersModule } from "./modules/users/users.module";
 import { ProductsModule } from "./modules/products/products.module";
 import { SalesModule } from "./modules/sales/sales.module";
+import { ReportsModule } from "./modules/reports/reports.module";
 import { ReadCacheModule } from "./shared/cache/read-cache.module";
 
 @Module({
@@ -31,6 +32,7 @@ import { ReadCacheModule } from "./shared/cache/read-cache.module";
     UsersModule,
     ProductsModule,
     SalesModule,
+    ReportsModule,
   ],
 })
 export class AppModule {}

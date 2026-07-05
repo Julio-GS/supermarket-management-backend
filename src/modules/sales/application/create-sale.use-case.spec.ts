@@ -1,5 +1,5 @@
 import { Test, TestingModule } from "@nestjs/testing";
-import { CreateSaleUseCase } from "./create-sale.use-case";
+import { CreateSaleInput, CreateSaleUseCase } from "./create-sale.use-case";
 import { ProductRepositoryPort } from "../../products/application/product.repository.port";
 import { SaleRepositoryPort } from "./sale.repository.port";
 import { IssueArcaInvoiceUseCase } from "./issue-arca-invoice.use-case";
@@ -34,6 +34,8 @@ function buildSale(overrides: Partial<Sale> = {}): Sale {
     id: "sale-id",
     user_id: "user-id",
     total: "121.00",
+    payment_methods: ["cash"],
+    split_ticket_groups: null,
     items: [
       {
         id: "item-id",
@@ -54,7 +56,7 @@ function buildSale(overrides: Partial<Sale> = {}): Sale {
     created_at: new Date(),
     updated_at: new Date(),
     ...overrides,
-  };
+  } as Sale;
 }
 
 describe("CreateSaleUseCase", () => {
@@ -105,6 +107,7 @@ describe("CreateSaleUseCase", () => {
     const result = await useCase.execute({
       user_id: "user-id",
       items: [{ product_id: product.id, quantity: 1 }],
+      payment_methods: ["cash"],
     });
 
     expect(result.total).toBe("121.00");
@@ -127,6 +130,7 @@ describe("CreateSaleUseCase", () => {
     await useCase.execute({
       user_id: "user-id",
       items: [{ product_id: product.id, quantity: 1 }],
+      payment_methods: ["cash"],
     });
 
     expect(issueInvoice.issue).not.toHaveBeenCalled();
@@ -154,6 +158,7 @@ describe("CreateSaleUseCase", () => {
       user_id: "user-id",
       items: [{ product_id: product.id, quantity: 1 }],
       invoice_requested: true,
+      payment_methods: ["cash"],
     });
 
     expect(issueInvoice.issue).toHaveBeenCalledWith([{ product, quantity: 1 }]);
@@ -180,6 +185,7 @@ describe("CreateSaleUseCase", () => {
         user_id: "user-id",
         items: [{ product_id: product.id, quantity: 1 }],
         invoice_requested: true,
+        payment_methods: ["cash"],
       }),
     ).rejects.toBeInstanceOf(ValidationError);
 
@@ -195,10 +201,289 @@ describe("CreateSaleUseCase", () => {
     const result = await useCase.execute({
       user_id: "user-id",
       items: [{ product_id: product.id, quantity: 1 }],
+      payment_methods: ["cash"],
     });
 
     expect(result.invoice_status).toBe("none");
     expect(issueInvoice.issue).not.toHaveBeenCalled();
+  });
+
+  it("persists a single payment method for a sale", async () => {
+    const product = buildProduct();
+    products.findByIdsForSale.mockResolvedValue([product]);
+    sales.create.mockResolvedValue(buildSale({ payment_methods: ["cash"] }));
+
+    const result = await useCase.execute({
+      user_id: "user-id",
+      items: [{ product_id: product.id, quantity: 1 }],
+      payment_methods: ["cash"],
+    });
+
+    expect(sales.create).toHaveBeenCalledWith(
+      expect.objectContaining({ payment_methods: ["cash"] }),
+    );
+    expect(result.payment_methods).toEqual(["cash"]);
+  });
+
+  it("persists multiple payment methods for a sale", async () => {
+    const product = buildProduct();
+    products.findByIdsForSale.mockResolvedValue([product]);
+    sales.create.mockResolvedValue(
+      buildSale({ payment_methods: ["cash", "card"] }),
+    );
+
+    const result = await useCase.execute({
+      user_id: "user-id",
+      items: [{ product_id: product.id, quantity: 1 }],
+      payment_methods: ["cash", "card"],
+    });
+
+    expect(sales.create).toHaveBeenCalledWith(
+      expect.objectContaining({ payment_methods: ["cash", "card"] }),
+    );
+    expect(result.payment_methods).toEqual(["cash", "card"]);
+  });
+
+  it("persists explicit split ticket groups and returns them", async () => {
+    const product = buildProduct();
+    products.findByIdsForSale.mockResolvedValue([product]);
+
+    const splitTicketGroups = [
+      { label: "A", items: [{ product_id: product.id, quantity: 2 }] },
+      { label: "B", items: [{ product_id: product.id, quantity: 1 }] },
+    ];
+    const expectedResponseGroups = [
+      {
+        label: "A",
+        items: [
+          {
+            product_id: product.id,
+            quantity: 2,
+            unit_price: "121.00",
+            subtotal: "242.00",
+          },
+        ],
+      },
+      {
+        label: "B",
+        items: [
+          {
+            product_id: product.id,
+            quantity: 1,
+            unit_price: "121.00",
+            subtotal: "121.00",
+          },
+        ],
+      },
+    ];
+    sales.create.mockResolvedValue(
+      buildSale({
+        total: "363.00",
+        split_ticket_groups: expectedResponseGroups,
+      }),
+    );
+
+    const result = await useCase.execute({
+      user_id: "user-id",
+      items: [{ product_id: product.id, quantity: 3 }],
+      payment_methods: ["cash"],
+      split_ticket_groups: splitTicketGroups,
+    });
+
+    expect(sales.create).toHaveBeenCalledWith(
+      expect.objectContaining({ split_ticket_groups: splitTicketGroups }),
+    );
+    expect(result.split_ticket_groups).toEqual(expectedResponseGroups);
+  });
+
+  it("derives split ticket groups from item-level split allocations", async () => {
+    const product = buildProduct();
+    products.findByIdsForSale.mockResolvedValue([product]);
+
+    const expectedResponseGroups = [
+      {
+        label: "A",
+        items: [
+          {
+            product_id: product.id,
+            quantity: 1,
+            unit_price: "121.00",
+            subtotal: "121.00",
+          },
+        ],
+      },
+      {
+        label: "B",
+        items: [
+          {
+            product_id: product.id,
+            quantity: 3,
+            unit_price: "121.00",
+            subtotal: "363.00",
+          },
+        ],
+      },
+    ];
+    sales.create.mockResolvedValue(
+      buildSale({
+        total: "484.00",
+        split_ticket_groups: expectedResponseGroups,
+      }),
+    );
+
+    const result = await useCase.execute({
+      user_id: "user-id",
+      items: [
+        {
+          product_id: product.id,
+          quantity: 4,
+          split_ticket: {
+            group_1_quantity: 1,
+            group_2_quantity: 3,
+          },
+        },
+      ],
+      payment_methods: ["cash"],
+    });
+
+    expect(sales.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        split_ticket_groups: [
+          { label: "A", items: [{ product_id: product.id, quantity: 1 }] },
+          { label: "B", items: [{ product_id: product.id, quantity: 3 }] },
+        ],
+      }),
+    );
+    expect(result.split_ticket_groups).toEqual(expectedResponseGroups);
+  });
+
+  it("rejects split ticket groups with invalid group counts", async () => {
+    const product = buildProduct();
+    products.findByIdsForSale.mockResolvedValue([product]);
+
+    await expect(
+      useCase.execute({
+        user_id: "user-id",
+        items: [{ product_id: product.id, quantity: 1 }],
+        payment_methods: ["cash"],
+        split_ticket_groups: [
+          { label: "A", items: [{ product_id: product.id, quantity: 1 }] },
+        ],
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
+
+    expect(sales.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects duplicate split ticket labels", async () => {
+    const product = buildProduct();
+    products.findByIdsForSale.mockResolvedValue([product]);
+
+    await expect(
+      useCase.execute({
+        user_id: "user-id",
+        items: [{ product_id: product.id, quantity: 1 }],
+        payment_methods: ["cash"],
+        split_ticket_groups: [
+          { label: "A", items: [{ product_id: product.id, quantity: 1 }] },
+          { label: "A", items: [{ product_id: product.id, quantity: 0 }] },
+        ],
+      } as unknown as CreateSaleInput),
+    ).rejects.toBeInstanceOf(ValidationError);
+
+    expect(sales.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects split ticket allocations that do not match item quantities", async () => {
+    const product = buildProduct();
+    products.findByIdsForSale.mockResolvedValue([product]);
+
+    await expect(
+      useCase.execute({
+        user_id: "user-id",
+        items: [{ product_id: product.id, quantity: 3 }],
+        payment_methods: ["cash"],
+        split_ticket_groups: [
+          { label: "A", items: [{ product_id: product.id, quantity: 2 }] },
+          { label: "B", items: [{ product_id: product.id, quantity: 2 }] },
+        ],
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
+
+    expect(sales.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects split ticket allocations for unknown products", async () => {
+    const product = buildProduct();
+    products.findByIdsForSale.mockResolvedValue([product]);
+
+    await expect(
+      useCase.execute({
+        user_id: "user-id",
+        items: [{ product_id: product.id, quantity: 1 }],
+        payment_methods: ["cash"],
+        split_ticket_groups: [
+          { label: "A", items: [{ product_id: product.id, quantity: 1 }] },
+          {
+            label: "B",
+            items: [{ product_id: "00000000-0000-0000-0000-000000000999", quantity: 1 }],
+          },
+        ],
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
+
+    expect(sales.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects missing payment methods before persisting the sale", async () => {
+    const product = buildProduct();
+    products.findByIdsForSale.mockResolvedValue([product]);
+
+    await expect(
+      useCase.execute(
+        {
+          user_id: "user-id",
+          items: [{ product_id: product.id, quantity: 1 }],
+          payment_methods: [],
+        },
+      ),
+    ).rejects.toBeInstanceOf(ValidationError);
+
+    expect(sales.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects unsupported payment methods", async () => {
+    const product = buildProduct();
+    products.findByIdsForSale.mockResolvedValue([product]);
+
+    const input = {
+      user_id: "user-id",
+      items: [{ product_id: product.id, quantity: 1 }],
+      payment_methods: ["cash", "bitcoin"],
+    } as unknown as CreateSaleInput;
+
+    await expect(
+      useCase.execute(input),
+    ).rejects.toBeInstanceOf(ValidationError);
+
+    expect(sales.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects duplicate payment methods", async () => {
+    const product = buildProduct();
+    products.findByIdsForSale.mockResolvedValue([product]);
+
+    const input = {
+      user_id: "user-id",
+      items: [{ product_id: product.id, quantity: 1 }],
+      payment_methods: ["cash", "cash"],
+    } as CreateSaleInput;
+
+    await expect(
+      useCase.execute(input),
+    ).rejects.toBeInstanceOf(ValidationError);
+
+    expect(sales.create).not.toHaveBeenCalled();
   });
 
   it("rejects unknown products before checking invoice eligibility", async () => {
@@ -209,6 +494,7 @@ describe("CreateSaleUseCase", () => {
         user_id: "user-id",
         items: [{ product_id: "missing-id", quantity: 1 }],
         invoice_requested: true,
+        payment_methods: ["cash"],
       }),
     ).rejects.toBeInstanceOf(NotFoundError);
 
@@ -226,6 +512,7 @@ describe("CreateSaleUseCase", () => {
         user_id: "user-id",
         items: [{ product_id: product.id, quantity: 1 }],
         invoice_requested: true,
+        payment_methods: ["cash"],
       }),
     ).rejects.toThrow("ARCA timeout");
 
@@ -243,6 +530,7 @@ describe("CreateSaleUseCase", () => {
         { product_id: product.id, quantity: 1 },
         { product_id: product.id, quantity: 1 },
       ],
+      payment_methods: ["cash"],
     });
 
     expect(products.findByIdsForSale).toHaveBeenCalledWith([product.id]);

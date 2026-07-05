@@ -20,12 +20,14 @@ auth:bearer {
 
 body:json {
   {
-    "invoice_requested": true,
     "items": [
       {
         "product_id": "{{productId}}",
         "quantity": 2
       }
+    ],
+    "payment_methods": [
+      "cash"
     ]
   }
 }
@@ -54,10 +56,13 @@ tests {
   });
   
   test("sale is non-fiscal by default", function() {
+    expect(res.body.payment_methods).to.deep.equal(["cash"]);
+    expect(res.body.split_ticket_groups).to.equal(null);
     expect(res.body.invoice_status).to.equal("none");
     expect(res.body.cae).to.equal(null);
     expect(res.body.cbte_nro).to.equal(null);
     expect(res.body.cbte_tipo).to.equal(null);
     expect(res.body.pto_vta).to.equal(null);
+    expect(res.body.invoice_requested_at).to.equal(null);
   });
 }

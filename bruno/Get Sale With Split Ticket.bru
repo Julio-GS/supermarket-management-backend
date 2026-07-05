@@ -1,0 +1,45 @@
+meta {
+  name: Get Sale With Split Ticket
+  type: http
+  seq: 12
+}
+
+get {
+  url: {{baseUrl}}/sales/{{splitTicketSaleId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+vars:pre-request {
+  baseUrl: http://localhost:3000/api/v1
+}
+
+tests {
+  test("status is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+  
+  test("returns the requested split-ticket sale", function() {
+    expect(res.body.id).to.equal(bru.getVar("splitTicketSaleId"));
+    expect(res.body.total).to.equal("7501.50");
+    expect(res.body.payment_methods).to.deep.equal(["cash", "card"]);
+    expect(res.body.split_ticket_groups).to.be.an("array");
+    expect(res.body.split_ticket_groups).to.have.lengthOf(2);
+    expect(res.body.split_ticket_groups[0].label).to.equal("A");
+    expect(res.body.split_ticket_groups[1].label).to.equal("B");
+    expect(res.body.split_ticket_groups[0].items[0].product_id).to.equal(
+      bru.getVar("productId"),
+    );
+    expect(res.body.split_ticket_groups[0].items[0].quantity).to.equal(1);
+    expect(res.body.split_ticket_groups[1].items[0].quantity).to.equal(1);
+    expect(res.body.items).to.be.an("array");
+    expect(res.body.items).to.have.lengthOf(1);
+    expect(res.body.items[0].quantity).to.equal(2);
+    expect(res.body.invoice_status).to.equal("none");
+    expect(res.body.invoice_requested_at).to.equal(null);
+  });
+}

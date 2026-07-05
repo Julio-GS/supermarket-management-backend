@@ -6,6 +6,8 @@ import { SaleRepositoryPort } from "./application/sale.repository.port";
 import { TypeOrmSaleRepository } from "./infrastructure/typeorm-sale.repository";
 import { SaleEntity } from "./infrastructure/typeorm-sale.entity";
 import { SaleItemEntity } from "./infrastructure/typeorm-sale-item.entity";
+import { SalePaymentMethodEntity } from "./infrastructure/typeorm-sale-payment-method.entity";
+import { SaleTicketAllocationEntity } from "./infrastructure/typeorm-sale-ticket-allocation.entity";
 import { CreateSaleUseCase } from "./application/create-sale.use-case";
 import { ListSalesUseCase } from "./application/list-sales.use-case";
 import { GetSaleUseCase } from "./application/get-sale.use-case";
@@ -16,7 +18,12 @@ import { ReadCacheModule } from "../../shared/cache/read-cache.module";
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([SaleEntity, SaleItemEntity]),
+    TypeOrmModule.forFeature([
+      SaleEntity,
+      SaleItemEntity,
+      SalePaymentMethodEntity,
+      SaleTicketAllocationEntity,
+    ]),
     ProductsModule,
     ReadCacheModule,
   ],

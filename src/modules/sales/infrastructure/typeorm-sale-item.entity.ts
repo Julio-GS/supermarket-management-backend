@@ -4,8 +4,10 @@ import {
   Column,
   ManyToOne,
   JoinColumn,
+  OneToMany,
 } from "typeorm";
 import { SaleEntity } from "./typeorm-sale.entity";
+import { SaleTicketAllocationEntity } from "./typeorm-sale-ticket-allocation.entity";
 
 @Entity("sale_items")
 export class SaleItemEntity {
@@ -30,4 +32,13 @@ export class SaleItemEntity {
   @ManyToOne(() => SaleEntity, (sale) => sale.items)
   @JoinColumn({ name: "sale_id" })
   sale!: SaleEntity;
+
+  @OneToMany(
+    () => SaleTicketAllocationEntity,
+    (allocation) => allocation.sale_item,
+    {
+      cascade: true,
+    },
+  )
+  split_ticket_allocations!: SaleTicketAllocationEntity[];
 }

@@ -2,6 +2,9 @@ import { registerAs } from "@nestjs/config";
 import { TypeOrmModuleOptions } from "@nestjs/typeorm";
 import { InitialSchema1750000000000 } from "../database/migrations/0000000000000-InitialSchema";
 import { AddArcaInvoiceFieldsToSales1789929600000 } from "../database/migrations/1789929600000-AddArcaInvoiceFieldsToSales";
+import { AddPaymentMethodsToSales1790000000000 } from "../database/migrations/1790000000000-AddPaymentMethodsToSales";
+import { AddSplitTicketAllocationsToSales1791000000000 } from "../database/migrations/1791000000000-AddSplitTicketAllocationsToSales";
+import { AddReportReadIndexes1792000000000 } from "../database/migrations/1792000000000-AddReportReadIndexes";
 
 export const databaseConfig = registerAs(
   "database",
@@ -17,6 +20,9 @@ export const databaseConfig = registerAs(
     migrations: [
       InitialSchema1750000000000,
       AddArcaInvoiceFieldsToSales1789929600000,
+      AddPaymentMethodsToSales1790000000000,
+      AddSplitTicketAllocationsToSales1791000000000,
+      AddReportReadIndexes1792000000000,
     ],
     migrationsRun: process.env.NODE_ENV !== "test",
   }),

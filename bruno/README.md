@@ -1,7 +1,7 @@
 # Supermarket MVP API — Bruno Collection
 
 This collection covers the main MVP flow of the NestJS backend:
-authentication, product CRUD, barcode conflict handling, and sales.
+authentication, product CRUD, barcode conflict handling, and sales with payment methods, split tickets, and ARCA invoicing.
 
 ## Requirements
 
@@ -25,6 +25,9 @@ bruno/
 ├── Create Sale.bru
 ├── List Sales.bru
 ├── Get Sale.bru
+├── Create Sale With Split Ticket.bru
+├── Get Sale With Split Ticket.bru
+├── Create Sale With ARCA Invoice.bru
 └── Protected Without Token.bru
 ```
 
@@ -64,7 +67,7 @@ bru run "Create Product.bru" --env Local
 |----------|---------------------------------|------------------------------------------|
 | `baseUrl`| `http://localhost:3000/api/v1`  | Base URL for all requests.               |
 
-Collection variables (`username`, `password`, `token`, `productId`, `saleId`, barcodes) are generated and extracted at runtime by pre-request and post-response scripts.
+Collection variables (`username`, `password`, `token`, `productId`, `saleId`, `splitTicketSaleId`, `cae`, `cbteNro`, barcodes) are generated and extracted at runtime by pre-request and post-response scripts.
 
 ## Covered flows
 
@@ -75,9 +78,12 @@ Collection variables (`username`, `password`, `token`, `productId`, `saleId`, ba
 5. **Get Product** — fetches the created product by id.
 6. **Update Product** — updates the product name.
 7. **Duplicate Barcode Conflict** — tries to reuse an existing barcode and expects `409`.
-8. **Create Sale** — creates a sale for the product with quantity `3`.
-9. **List Sales** — lists all sales for the authenticated user.
-10. **Get Sale** — fetches the created sale by id.
-11. **Protected Without Token** — calls a protected route with no token and expects `401`.
+8. **Create Sale** — creates a non-fiscal sale with payment methods.
+9. **List Sales** — lists all sales for the authenticated user and returns the current sale fields.
+10. **Get Sale** — fetches the created sale by id and returns the current sale fields.
+11. **Create Sale With Split Ticket** — creates a sale with two split-ticket groups and stores `splitTicketSaleId`.
+12. **Get Sale With Split Ticket** — fetches the split-ticket sale by id and verifies the persisted allocation.
+13. **Create Sale With ARCA Invoice** — creates a fiscal sale and returns ARCA invoice data.
+14. **Protected Without Token** — calls a protected route with no token and expects `401`.
 
 > No `DATABASE_URL` or other secrets are stored in these files.

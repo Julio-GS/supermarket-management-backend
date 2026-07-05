@@ -1,0 +1,85 @@
+meta {
+  name: Create Sale With Split Ticket
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{baseUrl}}/sales
+  body: json
+  auth: bearer
+}
+
+headers {
+  Content-Type: application/json
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "items": [
+      {
+        "product_id": "{{productId}}",
+        "quantity": 2
+      }
+    ],
+    "payment_methods": [
+      "cash",
+      "card"
+    ],
+    "split_ticket_groups": [
+      {
+        "label": "A",
+        "items": [
+          {
+            "product_id": "{{productId}}",
+            "quantity": 1
+          }
+        ]
+      },
+      {
+        "label": "B",
+        "items": [
+          {
+            "product_id": "{{productId}}",
+            "quantity": 1
+          }
+        ]
+      }
+    ]
+  }
+}
+
+vars:pre-request {
+  baseUrl: http://localhost:3000/api/v1
+  productId: 20072281-3eec-458c-b1a2-1da465024d90
+}
+
+script:post-response {
+  bru.setVar("splitTicketSaleId", res.body.id);
+}
+
+tests {
+  test("status is 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+  
+  test("returns split ticket groups", function() {
+    expect(res.body.total).to.equal("7501.50");
+    expect(res.body.payment_methods).to.deep.equal(["cash", "card"]);
+    expect(res.body.split_ticket_groups).to.be.an("array");
+    expect(res.body.split_ticket_groups).to.have.lengthOf(2);
+    expect(res.body.split_ticket_groups[0].label).to.equal("A");
+    expect(res.body.split_ticket_groups[1].label).to.equal("B");
+    expect(res.body.split_ticket_groups[0].items[0].product_id).to.equal(
+      bru.getVar("productId"),
+    );
+    expect(res.body.split_ticket_groups[0].items[0].quantity).to.equal(1);
+    expect(res.body.split_ticket_groups[1].items[0].quantity).to.equal(1);
+    expect(res.body.invoice_status).to.equal("none");
+    expect(res.body.invoice_requested_at).to.equal(null);
+  });
+}

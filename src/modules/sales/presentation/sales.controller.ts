@@ -36,6 +36,8 @@ function toSaleResponse(sale: Sale): SaleResponseDto {
     id: sale.id,
     user_id: sale.user_id,
     total: sale.total,
+    payment_methods: sale.payment_methods ?? [],
+    split_ticket_groups: sale.split_ticket_groups ?? null,
     items: sale.items.map(
       (item): SaleItemResponseDto => ({
         id: item.id,
@@ -74,6 +76,8 @@ export class SalesController {
     const sale = await this.createSale.execute({
       user_id: req.user.sub,
       items: dto.items,
+      payment_methods: dto.payment_methods,
+      split_ticket_groups: dto.split_ticket_groups,
       invoice_requested: dto.invoice_requested,
     });
     return toSaleResponse(sale);
