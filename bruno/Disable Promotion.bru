@@ -1,0 +1,25 @@
+meta {
+  name: Disable Promotion
+  type: http
+  seq: 22
+}
+
+delete {
+  url: {{baseUrl}}/promotions/{{promotionId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+vars:pre-request {
+  baseUrl: http://localhost:3001/api/v1
+}
+
+tests {
+  test("status is 204", function() {
+    expect(res.getStatus()).to.equal(204);
+  });
+}

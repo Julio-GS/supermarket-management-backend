@@ -9,9 +9,10 @@ This guide maps the NestJS backend to the frontend contracts you need to call it
 3. `POST /products` to create products with at least one barcode.
 4. `GET /products?search=leche&page=1&limit=20&sort=detalle:asc` for searchable paginated product reads, or `GET /products` for the legacy array response.
 5. `GET /sales?page=1&limit=20&sort=created_at:desc` for paginated sale history, or `GET /sales` for the legacy array response.
-6. `POST /sales` with `{ items: [{ product_id, quantity }], invoice_requested?: boolean }` to create a sale; the backend computes `total`.
-7. Set `invoice_requested: true` only when the cashier asks for electronic invoicing. Local development can use `ARCA_MOCK=true` so the response includes fake invoice data without real ARCA credentials.
-8. Handle `400`, `401`, `404`, and `409` using the error shape in [Error response shape](#error-response-shape).
+6. `POST /sales` with `{ items, payment_methods, split_ticket_groups?, invoice_requested? }` to create a sale; the backend computes `total` and normalizes the response.
+7. Use `split_ticket_groups` only when the cashier needs a split-ticket checkout. It stays one sale, one payment set, and one invoice flow.
+8. Set `invoice_requested: true` only when the cashier asks for electronic invoicing. Local development can use `ARCA_MOCK=true` so the response includes fake invoice data without real ARCA credentials.
+9. Handle `400`, `401`, `404`, and `500` using the error shape in [Error response shape](#error-response-shape).
 
 ## Base URL and API prefix
 
@@ -387,30 +388,30 @@ Base route: `/sales`. All routes require the bearer token and operate on sales o
 `POST /sales`
 
 ```json
-// Request
 {
-  "invoice_requested": false,
   "items": [
     {
       "product_id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
-      "quantity": 3
+      "quantity": 2
     }
-  ]
+  ],
+  "payment_methods": ["cash"]
 }
 ```
 
 ```json
-// Response 201 Created
 {
   "id": "b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a22",
   "user_id": "c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33",
   "total": "300.00",
+  "payment_methods": ["cash"],
+  "split_ticket_groups": null,
   "items": [
     {
       "id": "d3eebc99-9c0b-4ef8-bb6d-6bb9bd380a44",
       "product_id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
-      "quantity": 3,
-      "unit_price": "100.00",
+      "quantity": 2,
+      "unit_price": "150.00",
       "subtotal": "300.00"
     }
   ],
@@ -426,6 +427,83 @@ Base route: `/sales`. All routes require the bearer token and operate on sales o
 }
 ```
 
+Fields:
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| `items` | yes | Non-empty array. Each item needs a UUID `product_id` and `quantity >= 1`. |
+| `payment_methods` | yes | Non-empty, unique array. Allowed values: `cash`, `transfer`, `card`, `qr`. |
+| `split_ticket_groups` | no | Exactly 2 groups when present. Labels must be unique and non-empty; allocations must cover the ordered quantities. |
+| `invoice_requested` | no | Boolean, defaults to `false`. |
+
+Notes:
+
+- `payment_methods` is normalized to backend order (`cash`, `transfer`, `card`, `qr`) in responses.
+- `split_ticket_groups` is returned only when the sale was split-ticketed, and it is sorted by label.
+- The frontend should not rely on request order when comparing these arrays.
+- Split-ticket is operational/visual only: one sale, one payment set, one invoice flow.
+
+### Split-ticket sale
+
+`POST /sales`
+
+```json
+{
+  "items": [
+    {
+      "product_id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+      "quantity": 2
+    }
+  ],
+  "payment_methods": ["cash", "card"],
+  "split_ticket_groups": [
+    {
+      "label": "A",
+      "items": [
+        { "product_id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11", "quantity": 1 }
+      ]
+    },
+    {
+      "label": "B",
+      "items": [
+        { "product_id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11", "quantity": 1 }
+      ]
+    }
+  ]
+}
+```
+
+```json
+{
+  "payment_methods": ["cash", "card"],
+  "split_ticket_groups": [
+    {
+      "label": "A",
+      "items": [
+        {
+          "product_id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+          "quantity": 1,
+          "unit_price": "150.00",
+          "subtotal": "150.00"
+        }
+      ]
+    },
+    {
+      "label": "B",
+      "items": [
+        {
+          "product_id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+          "quantity": 1,
+          "unit_price": "150.00",
+          "subtotal": "150.00"
+        }
+      ]
+    }
+  ],
+  "invoice_status": "none"
+}
+```
+
 ### Create a sale with electronic invoice
 
 `POST /sales`
@@ -433,9 +511,9 @@ Base route: `/sales`. All routes require the bearer token and operate on sales o
 Use this only when the cashier explicitly requests ARCA electronic invoicing. V1 supports **Factura B** for **Consumidor Final** only.
 
 ```json
-// Request
 {
   "invoice_requested": true,
+  "payment_methods": ["cash"],
   "items": [
     {
       "product_id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
@@ -446,11 +524,12 @@ Use this only when the cashier explicitly requests ARCA electronic invoicing. V1
 ```
 
 ```json
-// Response 201 Created
 {
   "id": "b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a22",
   "user_id": "c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33",
   "total": "121.00",
+  "payment_methods": ["cash"],
+  "split_ticket_groups": null,
   "items": [
     {
       "id": "d3eebc99-9c0b-4ef8-bb6d-6bb9bd380a44",
@@ -483,7 +562,7 @@ ARCA_CERT=
 ARCA_KEY=
 ```
 
-Mock mode does not call `@arcasdk/core`; it only lets the frontend test the checkout, response mapping, and invoice UI states. Real ARCA emission still requires valid homologation/production credentials.
+Mock mode does not call `@arcasdk/core`; it only lets the frontend test the checkout, response mapping, and invoice UI states. Real ARCA emission still requires valid homologation/production credentials. If ARCA rejects the voucher, the request fails and no sale is persisted.
 
 Rules:
 
@@ -494,6 +573,8 @@ Rules:
 | quantity | yes (per item) | Integer ≥ 1.                                                |
 | invoice_requested | no | Defaults to `false`. When `true`, backend attempts electronic invoicing. |
 
+Same sale rules still apply here: the frontend must also send `payment_methods`, and can add `split_ticket_groups` if the checkout is split.
+
 The backend calculates `unit_price` from the product's `costo_final`, `subtotal = unit_price × quantity`, and `total` as the sum of subtotals.
 
 There is no stock decrement and no customer model in the MVP. Invoicing uses Consumidor Final (`DocTipo=99`, `DocNro=0`) and Factura B (`cbte_tipo=6`).
@@ -502,7 +583,7 @@ Invoice fields in every sale response:
 
 | Field | Type | Meaning |
 |-------|------|---------|
-| invoice_status | `"none" \| "issued" \| "failed"` | `none` for non-fiscal sales, `issued` when ARCA/mock succeeds. |
+| invoice_status | `"none" \| "issued" \| "failed"` | `none` for non-fiscal sales, `issued` when ARCA/mock succeeds; keep a defensive fallback for `failed`. |
 | cae | `string \| null` | Electronic authorization code. Null for non-fiscal sales. |
 | cae_vto | `string \| null` | CAE expiration date. Null for non-fiscal sales. |
 | cbte_nro | `number \| null` | Voucher number. Null for non-fiscal sales. |
@@ -514,38 +595,47 @@ Invoice fields in every sale response:
 
 `GET /sales`
 
-Returns only the authenticated user's sales, ordered by `created_at DESC`.
+Returns only the authenticated user's sales. Without query parameters, it returns `SaleResponse[]`.
 
-Without query parameters, this returns the legacy array response:
+With pagination parameters (`page`, `limit`, `sort`), it returns `PageResponse<SaleResponse>`. Supported sort fields are `created_at`, `updated_at`, and `total`.
 
 ```json
-// Response 200 OK
 [
   {
     "id": "b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a22",
     "user_id": "c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33",
     "total": "300.00",
+    "payment_methods": ["cash"],
+    "split_ticket_groups": null,
     "items": [...],
+    "invoice_status": "none",
+    "cae": null,
+    "cae_vto": null,
+    "cbte_nro": null,
+    "cbte_tipo": null,
+    "pto_vta": null,
+    "invoice_requested_at": null,
     "created_at": "2024-01-01T00:00:00.000Z",
     "updated_at": "2024-01-01T00:00:00.000Z"
   }
 ]
 ```
 
-With pagination parameters, this returns a page wrapper:
+The frontend should not send a `user_id` query parameter.
 
 ```http
 GET /sales?page=1&limit=20&sort=created_at:desc
 ```
 
 ```json
-// Response 200 OK
 {
   "data": [
     {
       "id": "b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a22",
       "user_id": "c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33",
       "total": "300.00",
+      "payment_methods": ["cash"],
+      "split_ticket_groups": null,
       "items": [...],
       "invoice_status": "none",
       "cae": null,
@@ -563,29 +653,31 @@ GET /sales?page=1&limit=20&sort=created_at:desc
     "limit": 20,
     "total": 1,
     "totalPages": 1,
-    "hasNext": false
+      "hasNext": false
   }
 }
 ```
-
-Sale history is scoped to the authenticated user. The frontend should not send a `user_id` query parameter.
 
 ### Get one sale
 
 `GET /sales/:id`
 
-Returns `404` if the sale does not exist or does not belong to the authenticated user.
+Returns the same `SaleResponse` shape as create/list. Returns `400` if `:id` is not a UUID and `404` if the sale does not exist or does not belong to the authenticated user.
 
 ### Sales error cases
 
 | Scenario                         | Status | Message                              |
 |----------------------------------|--------|--------------------------------------|
 | Empty `items` array              | 400    | Sale must contain at least one item  |
+| Missing `payment_methods`        | 400    | validation error from class-validator |
+| Unsupported or duplicate payment methods | 400 | validation error from class-validator |
+| `split_ticket_groups` has the wrong shape, duplicate labels, or mismatched quantities | 400 | validation error from class-validator |
 | `product_id` does not exist      | 404    | Product <uuid> not found             |
-| `quantity` < 1 or not an integer | 400    | validation error from class-validator|
-| `invoice_requested=true` and any product has `facturable=false` | 400 | Invoice cannot be issued for non-facturable products |
+| `quantity` < 1 or not an integer | 400    | validation error from class-validator |
+| `invoice_requested=true` and any product has `facturable=false` | 400 | Product is not facturable and cannot be invoiced |
 | ARCA real-mode credentials are invalid or ARCA rejects the voucher | 500 | ARCA/SDK error message from backend |
 | Missing/invalid token            | 401    | Invalid credentials / Unauthorized   |
+| Sale id is not a UUID            | 400    | ParseUUIDPipe rejects the request before lookup |
 
 ## Error response shape
 
@@ -615,9 +707,10 @@ Every error uses the same JSON shape from `HttpExceptionFilter`:
 1. **Auth shell**: register, login, logout, token storage, and an HTTP interceptor that adds `Authorization: Bearer <token>`.
 2. **Product list + create**: build the catalog UI; verify duplicate-barcode errors.
 3. **Product edit + delete**: reuse the create form; note that sending `codigos` replaces all barcodes.
-4. **Sale creation**: scan/select products and quantities; display backend-computed `total`.
+4. **Sale checkout**: scan/select products, send `payment_methods`, and add `split_ticket_groups` only when the checkout must be split visually.
 5. **Optional invoice UI**: add a cashier-controlled “request electronic invoice” toggle. Show invoice fields only when `invoice_status === "issued"`.
-6. **Sale history**: list and detail views scoped to the logged-in user, including invoice status.
+6. **Sale history**: list and detail views scoped to the logged-in user, including payment methods and split-ticket data.
+7. **Promotions admin**: manage product promotions (create, list, edit, disable) and display promotion badges on product cards. See [`promotions-frontend-integration.md`](./promotions-frontend-integration.md) for the full guide and updated product/sale response shapes.
 
 ## TypeScript request/response interfaces
 
@@ -692,17 +785,29 @@ interface ProductResponse {
 type ProductListResponse = ProductResponse[] | PageResponse<ProductResponse>;
 
 // Sales
+type PaymentMethod = 'cash' | 'transfer' | 'card' | 'qr';
+
 interface SaleItemRequest {
   product_id: string;
   quantity: number;
 }
 
-interface CreateSaleRequest {
-  items: SaleItemRequest[];
-  invoice_requested?: boolean;
+interface SplitTicketGroupItemRequest {
+  product_id: string;
+  quantity: number;
 }
 
-type InvoiceStatus = 'none' | 'issued' | 'failed';
+interface SplitTicketGroupRequest {
+  label: string;
+  items: SplitTicketGroupItemRequest[];
+}
+
+interface CreateSaleRequest {
+  items: SaleItemRequest[];
+  payment_methods: PaymentMethod[];
+  split_ticket_groups?: SplitTicketGroupRequest[];
+  invoice_requested?: boolean;
+}
 
 interface SaleItemResponse {
   id: string;
@@ -712,10 +817,26 @@ interface SaleItemResponse {
   subtotal: string;
 }
 
+interface SaleSplitTicketGroupItemResponse {
+  product_id: string;
+  quantity: number;
+  unit_price: string;
+  subtotal: string;
+}
+
+interface SaleSplitTicketGroupResponse {
+  label: string;
+  items: SaleSplitTicketGroupItemResponse[];
+}
+
+type InvoiceStatus = 'none' | 'issued' | 'failed';
+
 interface SaleResponse {
   id: string;
   user_id: string;
   total: string;
+  payment_methods: PaymentMethod[];
+  split_ticket_groups: SaleSplitTicketGroupResponse[] | null;
   items: SaleItemResponse[];
   invoice_status: InvoiceStatus;
   cae: string | null;
@@ -807,11 +928,8 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-async function createSale(items: SaleItemRequest[], invoiceRequested = false): Promise<SaleResponse> {
-  const { data } = await api.post('/sales', {
-    items,
-    invoice_requested: invoiceRequested,
-  });
+async function createSale(request: CreateSaleRequest): Promise<SaleResponse> {
+  const { data } = await api.post('/sales', request);
   return data;
 }
 
@@ -819,6 +937,11 @@ async function listSalesPage(page = 1): Promise<PageResponse<SaleResponse>> {
   const { data } = await api.get('/sales', {
     params: { page, limit: 20, sort: 'created_at:desc' },
   });
+  return data;
+}
+
+async function getSale(id: string): Promise<SaleResponse> {
+  const { data } = await api.get(`/sales/${id}`);
   return data;
 }
 ```
@@ -839,9 +962,11 @@ bruno/
 ├── Update Product.bru
 ├── Duplicate Barcode Conflict.bru
 ├── Create Sale.bru
-├── Create Sale With ARCA Invoice.bru
 ├── List Sales.bru
 ├── Get Sale.bru
+├── Create Sale With Split Ticket.bru
+├── Get Sale With Split Ticket.bru
+├── Create Sale With ARCA Invoice.bru
 └── Protected Without Token.bru
 ```
 
@@ -859,7 +984,7 @@ cd bruno
 bru run "Create Product.bru" --env Local
 ```
 
-The collection uses runtime variables (`username`, `password`, `token`, `productId`, `saleId`, `barcode1`, `barcode2`) so it can be executed repeatedly without manual setup. Use `Create Sale With ARCA Invoice` with `ARCA_MOCK=true` for local invoice UI testing without real ARCA credentials.
+The collection uses runtime variables (`username`, `password`, `token`, `productId`, `saleId`, `splitTicketSaleId`, `barcode1`, `barcode2`, `cae`, `cbteNro`) so it can be executed repeatedly without manual setup. Use `Create Sale With ARCA Invoice` with `ARCA_MOCK=true` for local invoice UI testing without real ARCA credentials.
 
 ## Checklist
 
@@ -880,6 +1005,25 @@ The collection uses runtime variables (`username`, `password`, `token`, `product
 - [ ] `409 Conflict` is handled for duplicate barcodes and duplicate usernames.
 - [ ] `404 Not Found` is handled for missing products or sales.
 
+### Sales validation checklist
+
+- [ ] Sale create requests always send `items` and `payment_methods`.
+- [ ] Split-ticket checkout uses `split_ticket_groups` only when needed and enforces exactly 2 unique labels.
+- [ ] Frontend treats `payment_methods` as normalized response data, not request-order data.
+- [ ] Frontend treats `split_ticket_groups` as `null` when the sale is not split-ticketed.
+- [ ] Frontend sends `invoice_requested: true` only when the cashier explicitly asks for electronic invoicing.
+- [ ] Frontend does not add async/polling behavior for ARCA; sale creation with invoice remains synchronous.
+- [ ] Frontend treats `invoice_status: "none"` as a non-fiscal sale and hides CAE/comprobante details.
+- [ ] Frontend displays `cae`, `cae_vto`, `cbte_nro`, `cbte_tipo`, and `pto_vta` when `invoice_status === "issued"`.
+- [ ] Frontend reuses the same sale type for list and detail views.
+
+## Focused integration guides
+
+These guides cover specific feature areas in depth. Read them after this document:
+
+- [`sales-and-reports-integration.md`](./sales-and-reports-integration.md) — Payment method allocations and business reports module.
+- [`promotions-frontend-integration.md`](./promotions-frontend-integration.md) — Promotions CRUD, checkout behavior, and updated product/sale response shapes.
+
 ## Next step
 
-Point the frontend at the local backend (`pnpm start:dev`), run the Bruno collection to confirm connectivity, then implement the auth interceptor and paginated product list first.
+Point the frontend at the local backend (`pnpm start:dev`), run the Bruno collection to confirm the plain sale, split-ticket sale, and ARCA invoice sale flows, then implement the auth interceptor and sale history screens first.

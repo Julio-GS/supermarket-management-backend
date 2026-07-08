@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
+import { PromotionsModule } from "../promotions/promotions.module";
 import { ProductsController } from "./presentation/products.controller";
 import { ProductRepositoryPort } from "./application/product.repository.port";
 import { TypeOrmProductRepository } from "./infrastructure/typeorm-product.repository";
@@ -15,6 +16,7 @@ import { ReadCacheModule } from "../../shared/cache/read-cache.module";
 @Module({
   imports: [
     TypeOrmModule.forFeature([ProductEntity, ProductBarcodeEntity]),
+    PromotionsModule,
     ReadCacheModule,
   ],
   controllers: [ProductsController],

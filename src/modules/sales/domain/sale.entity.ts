@@ -34,6 +34,13 @@ export interface SaleSplitTicketGroup {
   items: SaleSplitTicketItem[];
 }
 
+export interface SaleItemAppliedPromotion {
+  promotion_id: string;
+  promotion_scope: "product" | "store";
+  promotion_type: "percentage" | "two_x_one";
+  discount_amount: string;
+}
+
 export class Sale {
   id!: string;
   user_id!: string;
@@ -59,4 +66,8 @@ export class SaleItem {
   quantity!: number;
   unit_price!: string;
   subtotal!: string;
+  discount_amount!: string;
+  applied_promotions!: SaleItemAppliedPromotion[];
+  applied_promotion_id?: string | null;
+  applied_promotion_type?: string | null;
 }

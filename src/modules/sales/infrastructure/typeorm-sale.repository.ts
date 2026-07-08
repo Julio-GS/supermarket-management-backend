@@ -223,6 +223,7 @@ export class TypeOrmSaleRepository extends SaleRepositoryPort {
       this.itemRepo.create({
         id: randomUUID(),
         ...item,
+        applied_promotions: item.applied_promotions ?? [],
       }),
     );
 
@@ -318,6 +319,10 @@ export class TypeOrmSaleRepository extends SaleRepositoryPort {
         "item.quantity",
         "item.unit_price",
         "item.subtotal",
+        "item.discount_amount",
+        "item.applied_promotions",
+        "item.applied_promotion_id",
+        "item.applied_promotion_type",
       ])
       .addSelect([
         "payment_method.id",
@@ -362,10 +367,14 @@ export class TypeOrmSaleRepository extends SaleRepositoryPort {
       item.sale_id = saleItem.sale_id;
       item.product_id = saleItem.product_id;
       item.quantity = saleItem.quantity;
-      item.unit_price = saleItem.unit_price;
-      item.subtotal = saleItem.subtotal;
-      return item;
-    });
+        item.unit_price = saleItem.unit_price;
+        item.subtotal = saleItem.subtotal;
+        item.discount_amount = saleItem.discount_amount ?? "0.00";
+        item.applied_promotions = saleItem.applied_promotions ?? [];
+        item.applied_promotion_id = saleItem.applied_promotion_id ?? null;
+        item.applied_promotion_type = saleItem.applied_promotion_type ?? null;
+        return item;
+      });
     sale.created_at = entity.created_at;
     sale.updated_at = entity.updated_at;
     return sale;

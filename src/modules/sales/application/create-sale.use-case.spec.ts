@@ -3,6 +3,7 @@ import { CreateSaleInput, CreateSaleUseCase } from "./create-sale.use-case";
 import { ProductRepositoryPort } from "../../products/application/product.repository.port";
 import { SaleRepositoryPort } from "./sale.repository.port";
 import { IssueArcaInvoiceUseCase } from "./issue-arca-invoice.use-case";
+import { PromotionResolverService } from "../../promotions/application/promotion-resolver.service";
 import {
   NotFoundError,
   ValidationError,
@@ -44,6 +45,8 @@ function buildSale(overrides: Partial<Sale> = {}): Sale {
         quantity: 1,
         unit_price: "121.00",
         subtotal: "121.00",
+        discount_amount: "0.00",
+        applied_promotions: [],
       },
     ],
     invoice_status: "none",
@@ -64,6 +67,7 @@ describe("CreateSaleUseCase", () => {
   let products: jest.Mocked<ProductRepositoryPort>;
   let sales: jest.Mocked<SaleRepositoryPort>;
   let issueInvoice: { issue: jest.Mock };
+  let promotionResolver: { resolveForSaleItems: jest.Mock };
 
   beforeEach(async () => {
     products = {
@@ -86,6 +90,9 @@ describe("CreateSaleUseCase", () => {
     issueInvoice = {
       issue: jest.fn(),
     };
+    promotionResolver = {
+      resolveForSaleItems: jest.fn().mockResolvedValue(new Map()),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -93,6 +100,7 @@ describe("CreateSaleUseCase", () => {
         { provide: ProductRepositoryPort, useValue: products },
         { provide: SaleRepositoryPort, useValue: sales },
         { provide: IssueArcaInvoiceUseCase, useValue: issueInvoice },
+        { provide: PromotionResolverService, useValue: promotionResolver },
       ],
     }).compile();
 
@@ -564,5 +572,163 @@ describe("CreateSaleUseCase", () => {
     expect(sales.create).toHaveBeenCalledWith(
       expect.objectContaining({ total: "242.00" }),
     );
+  });
+
+  describe("promotion resolution", () => {
+    it("applies percentage discount and passes discount fields to repository", async () => {
+      const product = buildProduct();
+      products.findByIdsForSale.mockResolvedValue([product]);
+      promotionResolver.resolveForSaleItems.mockResolvedValue(
+        [
+          {
+            promotionId: "promo-10",
+            type: "percentage",
+            discountAmount: "12.10",
+            applied_promotions: [
+              {
+                promotion_id: "promo-10",
+                promotion_scope: "product",
+                promotion_type: "percentage",
+                discount_amount: "12.10",
+              },
+            ],
+          },
+        ],
+      );
+      sales.create.mockResolvedValue(
+        buildSale({ total: "108.90", items: [{ id: "item-id", sale_id: "sale-id", product_id: product.id, quantity: 1, unit_price: "121.00", subtotal: "108.90", discount_amount: "12.10", applied_promotions: [{ promotion_id: "promo-10", promotion_scope: "product", promotion_type: "percentage", discount_amount: "12.10" }] }] }),
+      );
+
+      const result = await useCase.execute({
+        user_id: "user-id",
+        items: [{ product_id: product.id, quantity: 1 }],
+        payment_methods: [{ method: "cash", amount: "108.90" }],
+      });
+
+      expect(promotionResolver.resolveForSaleItems).toHaveBeenCalledWith(
+        [{ productId: product.id, unitPrice: "121.00", quantity: 1 }],
+      );
+      expect(sales.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          total: "108.90",
+          items: expect.arrayContaining([
+            expect.objectContaining({
+              product_id: product.id,
+              subtotal: "108.90",
+              discount_amount: "12.10",
+              applied_promotion_id: "promo-10",
+              applied_promotion_type: "percentage",
+              applied_promotions: [
+                {
+                  promotion_id: "promo-10",
+                  promotion_scope: "product",
+                  promotion_type: "percentage",
+                  discount_amount: "12.10",
+                },
+              ],
+            }),
+          ]),
+        }),
+      );
+      expect(result.items[0].discount_amount).toBe("12.10");
+    });
+
+    it("applies 2x1 discount to sale", async () => {
+      const product = buildProduct();
+      products.findByIdsForSale.mockResolvedValue([product]);
+      promotionResolver.resolveForSaleItems.mockResolvedValue(
+        [
+          {
+            promotionId: "promo-2x1",
+            type: "two_x_one",
+            discountAmount: "121.00",
+            applied_promotions: [
+              {
+                promotion_id: "promo-2x1",
+                promotion_scope: "product",
+                promotion_type: "two_x_one",
+                discount_amount: "121.00",
+              },
+            ],
+          },
+        ],
+      );
+      sales.create.mockResolvedValue(
+        buildSale({
+          total: "242.00",
+          items: [
+            { id: "item-1", sale_id: "sale-id", product_id: product.id, quantity: 3, unit_price: "121.00", subtotal: "242.00", discount_amount: "121.00", applied_promotions: [{ promotion_id: "promo-2x1", promotion_scope: "product", promotion_type: "two_x_one", discount_amount: "121.00" }] },
+          ],
+        }),
+      );
+
+      const result = await useCase.execute({
+        user_id: "user-id",
+        items: [{ product_id: product.id, quantity: 3 }],
+        payment_methods: [{ method: "cash", amount: "242.00" }],
+      });
+
+      expect(result.total).toBe("242.00");
+      expect(result.items[0].discount_amount).toBe("121.00");
+    });
+
+    it("leaves items unchanged when no promotion applies", async () => {
+      const product = buildProduct();
+      products.findByIdsForSale.mockResolvedValue([product]);
+      promotionResolver.resolveForSaleItems.mockResolvedValue([null]);
+      sales.create.mockResolvedValue(buildSale({ total: "121.00" }));
+
+      await useCase.execute({
+        user_id: "user-id",
+        items: [{ product_id: product.id, quantity: 1 }],
+        payment_methods: [{ method: "cash", amount: "121.00" }],
+      });
+
+      expect(sales.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          items: expect.arrayContaining([
+            expect.objectContaining({
+              subtotal: "121.00",
+              discount_amount: "0.00",
+              applied_promotion_id: null,
+              applied_promotions: [],
+            }),
+          ]),
+        }),
+      );
+    });
+
+    it("handles mixed items with and without promotions", async () => {
+      const productA = buildProduct({ id: "prod-a" });
+      const productB = buildProduct({ id: "prod-b" });
+      products.findByIdsForSale.mockResolvedValue([productA, productB]);
+      promotionResolver.resolveForSaleItems.mockResolvedValue(
+        [
+          { promotionId: "p1", type: "percentage", discountAmount: "10.00", applied_promotions: [{ promotion_id: "p1", promotion_scope: "product", promotion_type: "percentage", discount_amount: "10.00" }] },
+          null,
+        ],
+      );
+      sales.create.mockResolvedValue(
+        buildSale({
+          total: "290.00",
+          items: [
+            { id: "item-a", sale_id: "sale-id", product_id: "prod-a", quantity: 1, unit_price: "100.00", subtotal: "90.00", discount_amount: "10.00", applied_promotions: [{ promotion_id: "p1", promotion_scope: "product", promotion_type: "percentage", discount_amount: "10.00" }] },
+            { id: "item-b", sale_id: "sale-id", product_id: "prod-b", quantity: 1, unit_price: "200.00", subtotal: "200.00", discount_amount: "0.00", applied_promotions: [] },
+          ],
+        }),
+      );
+
+      const result = await useCase.execute({
+        user_id: "user-id",
+        items: [
+          { product_id: "prod-a", quantity: 1 },
+          { product_id: "prod-b", quantity: 1 },
+        ],
+        payment_methods: [{ method: "cash", amount: "290.00" }],
+      });
+
+      expect(result.total).toBe("290.00");
+      expect(result.items).toHaveLength(2);
+    });
   });
 });

@@ -1,0 +1,43 @@
+meta {
+  name: Update Promotion
+  type: http
+  seq: 21
+}
+
+put {
+  url: {{baseUrl}}/promotions/{{promotionId}}
+  body: json
+  auth: bearer
+}
+
+headers {
+  Content-Type: application/json
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "discount_percent": 25
+  }
+}
+
+vars:pre-request {
+  baseUrl: http://localhost:3000/api/v1
+}
+
+tests {
+  test("status is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("discount_percent is updated", function() {
+    expect(res.body.discount_percent).to.equal(25);
+  });
+
+  test("promotion id unchanged", function() {
+    expect(res.body.id).to.equal(bru.getVar("promotionId"));
+  });
+}

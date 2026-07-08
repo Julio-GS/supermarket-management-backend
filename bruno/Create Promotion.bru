@@ -1,0 +1,70 @@
+meta {
+  name: Create Promotion
+  type: http
+  seq: 19
+}
+
+post {
+  url: {{baseUrl}}/promotions
+  body: json
+  auth: bearer
+}
+
+headers {
+  Content-Type: application/json
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "product_id": "{{productId}}",
+    "type": "percentage",
+    "discount_percent": 15,
+    "weekdays": [{{todayWeekday}}]
+  }
+}
+
+vars:pre-request {
+  baseUrl: http://localhost:3001/api/v1
+  productId: 00fe6a18-ef9b-46c4-a7be-8df87d9255e9
+}
+
+script:pre-request {
+  const jsDay = new Date().getDay();
+  const ourDay = jsDay === 0 ? 7 : jsDay;
+  bru.setVar("todayWeekday", ourDay);
+}
+
+script:post-response {
+  bru.setVar("promotionId", res.body.id);
+}
+
+tests {
+  test("status is 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+  
+  test("returns a promotion id", function() {
+    expect(res.body.id).to.be.a("string");
+  });
+  
+  test("type is percentage", function() {
+    expect(res.body.type).to.equal("percentage");
+  });
+  
+  test("discount_percent matches", function() {
+    expect(res.body.discount_percent).to.equal(15);
+  });
+  
+  test("promotion is enabled by default", function() {
+    expect(res.body.enabled).to.equal(true);
+  });
+  
+  test("weekdays includes today", function() {
+    expect(res.body.weekdays).to.be.an("array");
+    expect(res.body.weekdays).to.include(bru.getVar("todayWeekday"));
+  });
+}

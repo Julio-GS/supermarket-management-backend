@@ -1,0 +1,45 @@
+meta {
+  name: Get Sale With Promotion
+  type: http
+  seq: 24
+}
+
+get {
+  url: {{baseUrl}}/sales/{{promoSaleId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+vars:pre-request {
+  baseUrl: http://localhost:3000/api/v1
+}
+
+tests {
+  test("status is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("returns the requested sale", function() {
+    expect(res.body.id).to.equal(bru.getVar("promoSaleId"));
+  });
+
+  test("items include discount fields", function() {
+    expect(res.body.items).to.be.an("array");
+    expect(res.body.items).to.have.lengthOf.at.least(1);
+    const item = res.body.items[0];
+    expect(item).to.have.property("discount_amount");
+    expect(item).to.have.property("applied_promotion_id");
+    expect(item).to.have.property("applied_promotion_type");
+  });
+
+  test("promotion id matches the one created", function() {
+    const item = res.body.items[0];
+    if (item.applied_promotion_id) {
+      expect(item.applied_promotion_id).to.equal(bru.getVar("promotionId"));
+    }
+  });
+}

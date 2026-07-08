@@ -100,6 +100,13 @@ export class UpdateProductDto {
   codigos?: string[];
 }
 
+export class ProductPromotionSummaryDto {
+  id!: string;
+  type!: string;
+  discount_percent?: number | null;
+  weekdays?: number[] | null;
+}
+
 export class ProductResponseDto {
   id!: string;
   detalle!: string;
@@ -112,6 +119,7 @@ export class ProductResponseDto {
   facturable!: boolean;
   maneja_stock!: boolean;
   codigos!: string[];
+  promotions?: ProductPromotionSummaryDto[] | null;
   created_at!: Date;
   updated_at!: Date;
 }

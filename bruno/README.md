@@ -32,7 +32,13 @@ bruno/
 ├── List Sales Paginated.bru
 ├── Get Business Report - Day.bru
 ├── Get Business Report - Week.bru
-└── Get Business Report - Month.bru
+├── Get Business Report - Month.bru
+├── Create Promotion.bru
+├── List Promotions.bru
+├── Update Promotion.bru
+├── Disable Promotion.bru
+├── Create Sale With Promotion.bru
+└── Get Sale With Promotion.bru
 ```
 
 ## Running with the Bruno CLI
@@ -71,7 +77,7 @@ bru run "Create Product.bru" --env Local
 |----------|---------------------------------|------------------------------------------|
 | `baseUrl`| `http://localhost:3000/api/v1`  | Base URL for all requests.               |
 
-Collection variables (`username`, `password`, `token`, `productId`, `saleId`, `splitTicketSaleId`, `cae`, `cbteNro`, barcodes) are generated and extracted at runtime by pre-request and post-response scripts.
+Collection variables (`username`, `password`, `token`, `productId`, `saleId`, `splitTicketSaleId`, `promotionId`, `promoSaleId`, `cae`, `cbteNro`, barcodes) are generated and extracted at runtime by pre-request and post-response scripts.
 
 ## Covered flows
 
@@ -93,5 +99,29 @@ Collection variables (`username`, `password`, `token`, `productId`, `saleId`, `s
 16. **Get Business Report - Day** — fetches today's business report with payment method breakdown and top products.
 17. **Get Business Report - Week** — fetches the current week's business report.
 18. **Get Business Report - Month** — fetches the current month's business report with descending payment method sort verification.
+
+## Promotions flow (manual)
+
+The following requests cover end-to-end promotions testing. Run them in order after Login and Create Product have set the `token` and `productId` variables.
+
+19. **Create Promotion** — creates a `percentage` promotion (15 % off) active on today's weekday for the current product; stores `promotionId`.
+20. **List Promotions** — lists all promotions and verifies the array structure.
+21. **Update Promotion** — changes the discount to 25 % and verifies the update.
+22. **Disable Promotion** — soft-deletes the promotion (sets `enabled: false`); expects `204`.
+23. **Create Sale With Promotion** — creates a 3-unit sale for the promoted product; stores `promoSaleId`. Verifies each item includes `discount_amount`, `applied_promotion_id`, and `applied_promotion_type`.
+24. **Get Sale With Promotion** — fetches the sale by id and confirms the discount fields match the applied promotion.
+
+### How to test promotions manually
+
+1. **Run `Login`** (or `Register` → `Login`) to obtain a `token`.
+2. **Run `Create Product`** — a product id is stored in `productId`.
+3. **Run `Create Promotion`** — a `percentage` promotion is created on that product, active on today's weekday. The `promotionId` is captured.
+4. **Run `Get Product`** — verify the response includes a `promotions` array with the newly created promotion summary (`id`, `type`, `discount_percent`, `weekdays`).
+5. **Run `Create Sale With Promotion`** — creates a sale using the promoted product. Verify each line item includes non-null `discount_amount`, `applied_promotion_id`, and `applied_promotion_type`. The `total` should be less than the undiscounted subtotal.
+6. **Run `Get Sale With Promotion`** — confirm the discount fields are persisted on the sale read.
+7. **(Optional) Run `Update Promotion`** then **`List Promotions`** to confirm the discount change is visible.
+8. **(Optional) Run `Disable Promotion`** then **`List Promotions`** — the promotion still appears but `enabled` is now `false`. Run `Get Product` to confirm the promotions summary no longer includes it.
+
+> **Caveat**: The existing `Create Sale` (flow #8) expects a hardcoded total of `7501.50`. If a promotion is active on that product when it runs, the discounted total will differ and the test will fail. For end-to-end promotions testing, run the promotions flow separately from the main collection run, or disable the promotion before re-running `Create Sale`.
 
 > No `DATABASE_URL` or other secrets are stored in these files.

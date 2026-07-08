@@ -1,0 +1,73 @@
+meta {
+  name: Create Sale With Promotion
+  type: http
+  seq: 23
+}
+
+post {
+  url: {{baseUrl}}/sales
+  body: json
+  auth: bearer
+}
+
+headers {
+  Content-Type: application/json
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "items": [
+      {
+        "product_id": "{{productId}}",
+        "quantity": 3
+      }
+    ],
+    "payment_methods": [
+      { "method": "cash", "amount": "999999" }
+    ]
+  }
+}
+
+vars:pre-request {
+  baseUrl: http://localhost:3000/api/v1
+  productId: 00fe6a18-ef9b-46c4-a7be-8df87d9255e9
+}
+
+script:post-response {
+  bru.setVar("promoSaleId", res.body.id);
+}
+
+tests {
+  test("status is 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("sale has one item", function() {
+    expect(res.body.items).to.be.an("array");
+    expect(res.body.items).to.have.lengthOf(1);
+  });
+
+  test("item has discount fields", function() {
+    const item = res.body.items[0];
+    expect(item).to.have.property("discount_amount");
+    expect(item).to.have.property("applied_promotion_id");
+    expect(item).to.have.property("applied_promotion_type");
+  });
+
+  test("discount amount is a non-negative string", function() {
+    const item = res.body.items[0];
+    expect(item.discount_amount).to.be.a("string");
+    expect(parseFloat(item.discount_amount)).to.be.at.least(0);
+  });
+
+  test("total reflects discount", function() {
+    const total = parseFloat(res.body.total);
+    const itemSubtotal = parseFloat(res.body.items[0].subtotal);
+    const discount = parseFloat(res.body.items[0].discount_amount);
+    expect(total).to.be.closeTo(itemSubtotal - discount, 0.01);
+  });
+}

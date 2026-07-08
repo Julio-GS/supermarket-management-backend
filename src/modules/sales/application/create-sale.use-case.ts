@@ -4,6 +4,9 @@ import { Product } from "../../products/domain/product.entity";
 import { SaleRepositoryPort, SaleItemCreateData } from "./sale.repository.port";
 import { IssueArcaInvoiceUseCase } from "./issue-arca-invoice.use-case";
 import {
+  PromotionResolverService,
+} from "../../promotions/application/promotion-resolver.service";
+import {
   PAYMENT_METHODS,
   PaymentMethod,
   PaymentMethodAllocation,
@@ -231,6 +234,7 @@ export class CreateSaleUseCase {
     private readonly products: ProductRepositoryPort,
     private readonly sales: SaleRepositoryPort,
     private readonly issueInvoice: IssueArcaInvoiceUseCase,
+    private readonly promotionResolver: PromotionResolverService,
   ) {}
 
   async execute(input: CreateSaleInput): Promise<Sale> {
@@ -257,6 +261,13 @@ export class CreateSaleUseCase {
       ]),
     );
 
+    // First pass: validate products and build per-item price data
+    const resolutionItems: {
+      productId: string;
+      unitPrice: string;
+      quantity: number;
+    }[] = [];
+
     for (const item of input.items) {
       const product = productsById.get(item.product_id);
       if (!product) {
@@ -270,21 +281,53 @@ export class CreateSaleUseCase {
       }
 
       const unitPrice = Money.parse(product.costo_final);
-      const subtotal = Money.multiply(unitPrice, item.quantity);
-
-      saleItems.push({
-        product_id: product.id,
+      resolutionItems.push({
+        productId: product.id,
+        unitPrice: Money.toString(unitPrice),
         quantity: item.quantity,
-        unit_price: Money.toString(unitPrice),
-        subtotal: Money.toString(subtotal),
       });
 
-      total = Money.add(total, subtotal);
       loadedItems.push({
         product: product as Product,
         quantity: item.quantity,
       });
     }
+
+    // Resolve promotions for all items (parallel array — index-stable, safe for repeated productId)
+    const resolvedPromotions = await this.promotionResolver.resolveForSaleItems(
+      resolutionItems,
+    );
+
+    // Second pass: build sale items with discounts applied
+    resolutionItems.forEach((resItem, i) => {
+      const unitPrice = Money.parse(resItem.unitPrice);
+      const grossSubtotal = Money.multiply(unitPrice, resItem.quantity);
+      let discountAmount = Money.zero();
+      let appliedPromotionId: string | null = null;
+      let appliedPromotionType: string | null = null;
+
+      const resolved = resolvedPromotions[i];
+      if (resolved) {
+        discountAmount = Money.parse(resolved.discountAmount);
+        appliedPromotionId = resolved.promotionId;
+        appliedPromotionType = resolved.type;
+      }
+
+      const discountedSubtotal = Money.subtract(grossSubtotal, discountAmount);
+
+      saleItems.push({
+        product_id: resItem.productId,
+        quantity: resItem.quantity,
+        unit_price: Money.toString(unitPrice),
+        subtotal: Money.toString(discountedSubtotal),
+        discount_amount: Money.toString(discountAmount),
+        applied_promotions: resolved?.applied_promotions ?? [],
+        applied_promotion_id: appliedPromotionId,
+        applied_promotion_type: appliedPromotionType,
+      });
+
+      total = Money.add(total, discountedSubtotal);
+    });
 
     let invoiceResult: {
       cae: string;

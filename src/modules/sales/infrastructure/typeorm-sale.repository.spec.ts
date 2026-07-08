@@ -57,6 +57,10 @@ describe("TypeOrmSaleRepository", () => {
       "item.quantity",
       "item.unit_price",
       "item.subtotal",
+      "item.discount_amount",
+      "item.applied_promotions",
+      "item.applied_promotion_id",
+      "item.applied_promotion_type",
     ]);
     expect(qb.addSelect).toHaveBeenCalledWith([
       "payment_method.id",
@@ -106,7 +110,8 @@ describe("TypeOrmSaleRepository", () => {
               quantity: 3,
               unit_price: "121.00",
               subtotal: "363.00",
-            } as SaleItemEntity,
+              applied_promotions: [],
+            } as unknown as SaleItemEntity,
           ],
           split_ticket_allocations: [
             {
@@ -347,7 +352,9 @@ function buildSaleEntity(
         quantity: 1,
         unit_price: "121.00",
         subtotal: "121.00",
-      } as SaleItemEntity,
+        discount_amount: "0.00",
+        applied_promotions: [],
+      } as unknown as SaleItemEntity,
     ],
     payment_methods: [
       { id: "pm-1", sale_id: "sale-id", method: "cash", amount: "60.50" } as SalePaymentMethodEntity,

@@ -1,0 +1,38 @@
+meta {
+  name: List Promotions
+  type: http
+  seq: 20
+}
+
+get {
+  url: {{baseUrl}}/promotions
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+vars:pre-request {
+  baseUrl: http://localhost:3001/api/v1
+}
+
+tests {
+  test("status is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+  
+  test("returns an array", function() {
+    expect(res.body).to.be.an("array");
+  });
+  
+  test("each promotion has required fields", function() {
+    expect(res.body).to.have.lengthOf.at.least(1);
+    const promo = res.body[0];
+    expect(promo).to.have.property("id");
+    expect(promo).to.have.property("type");
+    expect(promo).to.have.property("product_id");
+    expect(promo).to.have.property("enabled");
+  });
+}

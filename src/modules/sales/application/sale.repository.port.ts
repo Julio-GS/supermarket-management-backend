@@ -2,6 +2,7 @@ import {
   Sale,
   InvoiceStatus,
   PaymentMethodAllocation,
+  SaleItemAppliedPromotion,
   SaleSplitTicketGroupInput,
 } from "../domain/sale.entity";
 import { Page, PaginationOptions } from "../../../shared/read-model/page";
@@ -13,6 +14,10 @@ export interface SaleItemCreateData {
   quantity: number;
   unit_price: string;
   subtotal: string;
+  discount_amount?: string;
+  applied_promotions?: SaleItemAppliedPromotion[];
+  applied_promotion_id?: string | null;
+  applied_promotion_type?: string | null;
 }
 
 export interface SaleCreateInput {

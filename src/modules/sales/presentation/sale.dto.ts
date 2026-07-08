@@ -105,6 +105,15 @@ export class SaleItemResponseDto {
   quantity!: number;
   unit_price!: string;
   subtotal!: string;
+  discount_amount!: string;
+  applied_promotions!: {
+    promotion_id: string;
+    promotion_scope: "product" | "store";
+    promotion_type: "percentage" | "two_x_one";
+    discount_amount: string;
+  }[];
+  applied_promotion_id?: string | null;
+  applied_promotion_type?: string | null;
 }
 
 export class SaleSplitTicketGroupItemResponseDto {
