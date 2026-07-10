@@ -1,7 +1,7 @@
 meta {
   name: Update Promotion
   type: http
-  seq: 21
+  seq: 4
 }
 
 put {
@@ -20,6 +20,8 @@ auth:bearer {
 
 body:json {
   {
+    "name": "Bruno Promo Updated",
+    "description": "Updated description via Bruno",
     "discount_percent": 25
   }
 }
@@ -31,6 +33,14 @@ vars:pre-request {
 tests {
   test("status is 200", function() {
     expect(res.getStatus()).to.equal(200);
+  });
+
+  test("name is updated", function() {
+    expect(res.body.name).to.equal("Bruno Promo Updated");
+  });
+
+  test("description is updated", function() {
+    expect(res.body.description).to.equal("Updated description via Bruno");
   });
 
   test("discount_percent is updated", function() {

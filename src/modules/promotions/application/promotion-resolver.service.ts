@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { PromotionRepositoryPort } from "./promotion.repository.port";
 import { Promotion, PromotionScope } from "../domain/promotion.entity";
 import { Money } from "../../../shared/money/money.helper";
+import { argentinaNow, ARG_TZ } from "./promotion-reference-date";
 
 export interface AppliedPromotion {
   promotion_id: string;
@@ -23,8 +24,6 @@ export interface SaleItemForResolution {
   quantity: number;
 }
 
-const ARG_TZ = "America/Argentina/Buenos_Aires";
-
 @Injectable()
 export class PromotionResolverService {
   constructor(private readonly promotionRepo: PromotionRepositoryPort) {}
@@ -35,7 +34,7 @@ export class PromotionResolverService {
   ): Promise<ResolvedPromotion[]> {
     if (items.length === 0) return [];
 
-    const referenceDate = now ?? this.nowInArgentina();
+    const referenceDate = now ?? argentinaNow();
     const productIds = [...new Set(items.map((i) => i.productId))];
     const promotions = await this.promotionRepo.findActiveByProductIds(
       productIds,
@@ -219,11 +218,5 @@ export class PromotionResolverService {
     }
 
     return "0.00";
-  }
-
-  private nowInArgentina(): Date {
-    const now = new Date();
-    const argString = now.toLocaleString("en-US", { timeZone: ARG_TZ });
-    return new Date(argString);
   }
 }

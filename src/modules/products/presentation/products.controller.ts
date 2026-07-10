@@ -32,10 +32,12 @@ import {
   normalizePagination,
 } from "../../../shared/read-model/pagination.dto";
 import { Page } from "../../../shared/read-model/page";
+import { argentinaNow } from "../../promotions/application/promotion-reference-date";
 
 function toProductResponse(
   product: Product,
   promotions?: ProductPromotionSummaryDto[] | null,
+  storePromotions?: ProductPromotionSummaryDto[] | null,
 ): ProductResponseDto {
   return {
     id: product.id,
@@ -50,6 +52,7 @@ function toProductResponse(
     maneja_stock: product.maneja_stock,
     codigos: product.codigos,
     promotions: promotions ?? null,
+    store_promotions: storePromotions ?? null,
     created_at: product.created_at,
     updated_at: product.updated_at,
   };
@@ -77,22 +80,30 @@ export class ProductsController {
   async list(
     @Query() query: ProductListQueryDto,
   ): Promise<ProductResponseDto[] | Page<ProductResponseDto>> {
+    const now = argentinaNow();
+
     if (hasPaginationQuery(query)) {
       const page = await this.listProducts.executePage(
         normalizePagination(query, { search: query.search }),
       );
       const productIds = page.data.map((p) => p.id);
-      const promotionsById = await this.loadPromotionsMap(productIds);
+      const { promotionsById, storePromotions } =
+        await this.loadPromotionsMap(productIds, now);
+      const storeList =
+        storePromotions.length > 0 ? storePromotions : null;
       const mapped = page.data.map((p) =>
-        toProductResponse(p, promotionsById.get(p.id)),
+        toProductResponse(p, promotionsById.get(p.id), storeList),
       );
       return { data: mapped, meta: page.meta } as Page<ProductResponseDto>;
     }
     const products = await this.listProducts.execute({ search: query.search });
     const productIds = products.map((p) => p.id);
-    const promotionsById = await this.loadPromotionsMap(productIds);
+    const { promotionsById, storePromotions } =
+      await this.loadPromotionsMap(productIds, now);
+    const storeList =
+      storePromotions.length > 0 ? storePromotions : null;
     return products.map((p) =>
-      toProductResponse(p, promotionsById.get(p.id)),
+      toProductResponse(p, promotionsById.get(p.id), storeList),
     );
   }
 
@@ -101,8 +112,11 @@ export class ProductsController {
     @Param("id", ParseUUIDPipe) id: string,
   ): Promise<ProductResponseDto> {
     const product = await this.getProduct.execute(id);
-    const promotionsById = await this.loadPromotionsMap([id]);
-    return toProductResponse(product, promotionsById.get(id));
+    const { promotionsById, storePromotions } =
+      await this.loadPromotionsMap([id], argentinaNow());
+    const storeList =
+      storePromotions.length > 0 ? storePromotions : null;
+    return toProductResponse(product, promotionsById.get(id), storeList);
   }
 
   @Put(":id")
@@ -111,8 +125,11 @@ export class ProductsController {
     @Body() dto: UpdateProductDto,
   ): Promise<ProductResponseDto> {
     const product = await this.updateProduct.execute(id, dto);
-    const promotionsById = await this.loadPromotionsMap([id]);
-    return toProductResponse(product, promotionsById.get(id));
+    const { promotionsById, storePromotions } =
+      await this.loadPromotionsMap([id], argentinaNow());
+    const storeList =
+      storePromotions.length > 0 ? storePromotions : null;
+    return toProductResponse(product, promotionsById.get(id), storeList);
   }
 
   @Delete(":id")
@@ -123,23 +140,40 @@ export class ProductsController {
 
   private async loadPromotionsMap(
     productIds: string[],
-  ): Promise<Map<string, ProductPromotionSummaryDto[]>> {
+    now: Date,
+  ): Promise<{
+    promotionsById: Map<string, ProductPromotionSummaryDto[]>;
+    storePromotions: ProductPromotionSummaryDto[];
+  }> {
     const promotions = await this.promotionRepo.findActiveByProductIds(
       productIds,
+      now,
     );
-    const map = new Map<string, ProductPromotionSummaryDto[]>();
+    const promotionsById = new Map<string, ProductPromotionSummaryDto[]>();
+    const storePromotions: ProductPromotionSummaryDto[] = [];
+
     for (const promo of promotions) {
-      if (!promo.product_id) continue; // store-wide promos have no product_id
-      const pid = promo.product_id;
-      const list = map.get(pid) ?? [];
-      list.push({
+      const dto: ProductPromotionSummaryDto = {
         id: promo.id,
+        name: promo.name,
+        description: promo.description ?? null,
+        scope: promo.scope,
         type: promo.type,
         discount_percent: promo.discount_percent ?? null,
+        start_date: promo.start_date?.toISOString() ?? null,
+        end_date: promo.end_date?.toISOString() ?? null,
         weekdays: promo.weekdays ?? null,
-      });
-      map.set(pid, list);
+      };
+
+      if (promo.scope === "store") {
+        storePromotions.push(dto);
+      } else if (promo.product_id) {
+        const list = promotionsById.get(promo.product_id) ?? [];
+        list.push(dto);
+        promotionsById.set(promo.product_id, list);
+      }
     }
-    return map;
+
+    return { promotionsById, storePromotions };
   }
 }

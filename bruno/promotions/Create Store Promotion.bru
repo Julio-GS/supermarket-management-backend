@@ -1,0 +1,86 @@
+meta {
+  name: Create Store Promotion
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/promotions
+  body: json
+  auth: bearer
+}
+
+headers {
+  Content-Type: application/json
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "name": "{{storePromoName}}",
+    "description": "Bruno test store-wide promotion",
+    "scope": "store",
+    "type": "percentage",
+    "discount_percent": 10,
+    "weekdays": [{{todayWeekday}}]
+  }
+}
+
+vars:pre-request {
+  baseUrl: http://localhost:3001/api/v1
+  storePromoName: Jubilados
+  todayWeekday: 
+}
+
+script:pre-request {
+  const jsDay = new Date().getDay();
+  const ourDay = jsDay === 0 ? 7 : jsDay;
+  bru.setVar("todayWeekday", ourDay);
+  bru.setVar("storePromoName", "Bruno Store Promo " + Date.now());
+}
+
+script:post-response {
+  bru.setVar("storePromotionId", res.body.id);
+}
+
+tests {
+  test("status is 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+  
+  test("returns a promotion id", function() {
+    expect(res.body.id).to.be.a("string");
+  });
+  
+  test("name is preserved", function() {
+    expect(res.body.name).to.equal(bru.getVar("storePromoName"));
+  });
+  
+  test("scope is store", function() {
+    expect(res.body.scope).to.equal("store");
+  });
+  
+  test("product_id is null for store-wide", function() {
+    expect(res.body.product_id).to.equal(null);
+  });
+  
+  test("type is percentage", function() {
+    expect(res.body.type).to.equal("percentage");
+  });
+  
+  test("discount_percent matches", function() {
+    expect(res.body.discount_percent).to.equal(10);
+  });
+  
+  test("promotion is enabled by default", function() {
+    expect(res.body.enabled).to.equal(true);
+  });
+  
+  test("weekdays includes today", function() {
+    expect(res.body.weekdays).to.be.an("array");
+    expect(res.body.weekdays).to.include(bru.getVar("todayWeekday"));
+  });
+}

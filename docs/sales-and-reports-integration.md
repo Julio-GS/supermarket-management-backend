@@ -102,6 +102,10 @@ If your frontend was sending `payment_methods: ["cash", "card"]`, update every c
 
 The `amount` must be computed by the checkout UI based on how the cashier splits the total across payment methods. For simple single-method sales, `amount` equals the sale total.
 
+### Sale item discount fields
+
+Sale item responses now include promotion discount fields: `discount_amount`, `applied_promotions`, and legacy `applied_promotion_id` / `applied_promotion_type`. These are always present and do not require extra query parameters. For promotion stacking, store-wide promotions, and the full discount integration model, see [`promotions-frontend-integration.md`](./promotions-frontend-integration.md).
+
 ### Split-ticket with payment allocations
 
 Split-ticket sales use the same payment method allocation format. Each ticket group does NOT have its own payment method — there is one payment set for the whole sale:

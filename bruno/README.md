@@ -1,7 +1,7 @@
 # Supermarket MVP API — Bruno Collection
 
 This collection covers the main MVP flow of the NestJS backend:
-authentication, product CRUD, barcode conflict handling, and sales with payment methods, split tickets, and ARCA invoicing.
+authentication, product CRUD, barcode conflict handling, sales with payment methods, split tickets, ARCA invoicing, and promotions (product-specific and store-wide).
 
 ## Requirements
 
@@ -14,31 +14,41 @@ authentication, product CRUD, barcode conflict handling, and sales with payment 
 ```text
 bruno/
 ├── bruno.json
+├── collection.bru
+├── README.md
 ├── environments/Local.bru
-├── Register.bru
-├── Login.bru
-├── Create Product.bru
-├── List Products.bru
-├── Get Product.bru
-├── Update Product.bru
-├── Duplicate Barcode Conflict.bru
-├── Create Sale.bru
-├── List Sales.bru
-├── Get Sale.bru
-├── Create Sale With Split Ticket.bru
-├── Get Sale With Split Ticket.bru
-├── Create Sale With ARCA Invoice.bru
-├── Protected Without Token.bru
-├── List Sales Paginated.bru
-├── Get Business Report - Day.bru
-├── Get Business Report - Week.bru
-├── Get Business Report - Month.bru
-├── Create Promotion.bru
-├── List Promotions.bru
-├── Update Promotion.bru
-├── Disable Promotion.bru
-├── Create Sale With Promotion.bru
-└── Get Sale With Promotion.bru
+├── auth/
+│   ├── Register.bru
+│   └── Login.bru
+├── products/
+│   ├── Create Product.bru
+│   ├── List Products.bru
+│   ├── Get Product.bru
+│   ├── Update Product.bru
+│   └── Duplicate Barcode Conflict.bru
+├── sales/
+│   ├── Create Sale.bru
+│   ├── List Sales.bru
+│   ├── List Sales Paginated.bru
+│   ├── Get Sale.bru
+│   ├── Create Sale With Split Ticket.bru
+│   ├── Get Sale With Split Ticket.bru
+│   ├── Create Sale With ARCA Invoice.bru
+│   ├── Create Sale With Promotion.bru
+│   └── Get Sale With Promotion.bru
+├── promotions/
+│   ├── Create Promotion.bru
+│   ├── Create Store Promotion.bru
+│   ├── List Promotions.bru
+│   ├── Update Promotion.bru
+│   └── Disable Promotion.bru
+├── reports/
+│   ├── Get Business Report - Day.bru
+│   ├── Get Business Report - Week.bru
+│   └── Get Business Report - Month.bru
+└── misc/
+    ├── Protected Without Token.bru
+    └── prueba.bru
 ```
 
 ## Running with the Bruno CLI
@@ -56,11 +66,19 @@ cd bruno
 bru run --env Local
 ```
 
-Run a single request:
+Run a single request inside a folder:
 
 ```bash
 cd bruno
-bru run "Create Product.bru" --env Local
+bru run "products/Create Product.bru" --env Local
+```
+
+Run an entire folder:
+
+```bash
+cd bruno
+bru run "auth" --env Local
+bru run "promotions" --env Local
 ```
 
 ## Running with the Bruno desktop app
@@ -77,50 +95,71 @@ bru run "Create Product.bru" --env Local
 |----------|---------------------------------|------------------------------------------|
 | `baseUrl`| `http://localhost:3000/api/v1`  | Base URL for all requests.               |
 
-Collection variables (`username`, `password`, `token`, `productId`, `saleId`, `splitTicketSaleId`, `promotionId`, `promoSaleId`, `cae`, `cbteNro`, barcodes) are generated and extracted at runtime by pre-request and post-response scripts.
+Collection variables (`username`, `password`, `token`, `productId`, `saleId`, `splitTicketSaleId`, `promotionId`, `storePromotionId`, `promoSaleId`, `cae`, `cbteNro`, barcodes) are generated and extracted at runtime by pre-request and post-response scripts.
 
 ## Covered flows
 
+### Auth
 1. **Register** — creates a unique user and returns an `access_token`.
 2. **Login** — authenticates the same user and captures the token.
+
+### Products
 3. **Create Product** — creates a product with two unique barcodes; stores the product id.
 4. **List Products** — lists all products.
-5. **Get Product** — fetches the created product by id.
+5. **Get Product** — fetches the created product by id. Optionally verifies the `promotions` summary array when promotions are active.
 6. **Update Product** — updates the product name.
 7. **Duplicate Barcode Conflict** — tries to reuse an existing barcode and expects `409`.
-8. **Create Sale** — creates a non-fiscal sale with payment methods.
+
+### Sales
+8. **Create Sale** — creates a non-fiscal sale with payment method allocation objects (`{ method, amount }`).
 9. **List Sales** — lists all sales for the authenticated user and returns the current sale fields.
-10. **Get Sale** — fetches the created sale by id and returns the current sale fields.
-11. **Create Sale With Split Ticket** — creates a sale with two split-ticket groups and stores `splitTicketSaleId`.
-12. **Get Sale With Split Ticket** — fetches the split-ticket sale by id and verifies the persisted allocation.
-13. **Create Sale With ARCA Invoice** — creates a fiscal sale and returns ARCA invoice data.
-14. **Protected Without Token** — calls a protected route with no token and expects `401`.
-15. **List Sales Paginated** — lists sales with pagination query and verifies the `{ data, meta }` response and payment method allocations.
-16. **Get Business Report - Day** — fetches today's business report with payment method breakdown and top products.
-17. **Get Business Report - Week** — fetches the current week's business report.
-18. **Get Business Report - Month** — fetches the current month's business report with descending payment method sort verification.
+10. **List Sales Paginated** — lists sales with pagination query and verifies the `{ data, meta }` response and payment method allocation shape.
+11. **Get Sale** — fetches the created sale by id and returns the current sale fields.
+12. **Create Sale With Split Ticket** — creates a sale with two split-ticket groups and stores `splitTicketSaleId`.
+13. **Get Sale With Split Ticket** — fetches the split-ticket sale by id and verifies the persisted allocation.
+14. **Create Sale With ARCA Invoice** — creates a fiscal sale and returns ARCA invoice data.
+15. **Create Sale With Promotion** — creates a 3-unit sale for the promoted product; stores `promoSaleId`. Verifies each item includes `discount_amount`, `applied_promotion_id`, `applied_promotion_type`, and the stacked `applied_promotions` array with `{ promotion_id, promotion_scope, promotion_type, discount_amount }` entries.
+16. **Get Sale With Promotion** — fetches the sale by id and confirms discount fields and `applied_promotions` are persisted on the sale read.
+
+### Promotions
+17. **Create Promotion** — creates a `percentage` promotion (15 %) with `name`, `description`, `scope: "product"`, and `product_id`; stores `promotionId`.
+18. **Create Store Promotion** — creates a store-wide `percentage` promotion (10 %) with `scope: "store"` (no `product_id`); stores `storePromotionId`.
+19. **List Promotions** — lists all promotions and verifies the array structure includes `name`, `scope`, `type`, `product_id`, and `enabled`.
+20. **Update Promotion** — changes the name, description, and discount to 25 %; verifies the update.
+21. **Disable Promotion** — soft-deletes the promotion (sets `enabled: false`); expects `204`.
+
+### Reports
+22. **Get Business Report - Day** — fetches today's business report with payment method breakdown and top products.
+23. **Get Business Report - Week** — fetches the current week's business report.
+24. **Get Business Report - Month** — fetches the current month's business report with descending payment method sort verification.
+
+### Misc
+25. **Protected Without Token** — calls a protected route with no token and expects `401`.
 
 ## Promotions flow (manual)
 
 The following requests cover end-to-end promotions testing. Run them in order after Login and Create Product have set the `token` and `productId` variables.
 
-19. **Create Promotion** — creates a `percentage` promotion (15 % off) active on today's weekday for the current product; stores `promotionId`.
-20. **List Promotions** — lists all promotions and verifies the array structure.
-21. **Update Promotion** — changes the discount to 25 % and verifies the update.
-22. **Disable Promotion** — soft-deletes the promotion (sets `enabled: false`); expects `204`.
-23. **Create Sale With Promotion** — creates a 3-unit sale for the promoted product; stores `promoSaleId`. Verifies each item includes `discount_amount`, `applied_promotion_id`, and `applied_promotion_type`.
-24. **Get Sale With Promotion** — fetches the sale by id and confirms the discount fields match the applied promotion.
+### Product-specific promotion
 
-### How to test promotions manually
+1. **Run `Create Promotion`** — creates a `percentage` promotion (15 %) scoped to `product` with the current `productId`. The `promotionId` is captured.
+2. **Run `Get Product`** — verify the response includes a `promotions` array with the newly created promotion summary (`id`, `type`, `discount_percent`, `weekdays`).
+3. **Run `Create Sale With Promotion`** — creates a 3-unit sale using the promoted product. Verify each line item includes:
+   - `discount_amount`, `applied_promotion_id`, `applied_promotion_type` (legacy fields)
+   - `applied_promotions` array with entries containing `promotion_id`, `promotion_scope`, `promotion_type`, `discount_amount`
+   - The `total` should be less than the undiscounted subtotal.
+4. **Run `Get Sale With Promotion`** — confirm the discount fields and `applied_promotions` array are persisted on the sale read.
 
-1. **Run `Login`** (or `Register` → `Login`) to obtain a `token`.
-2. **Run `Create Product`** — a product id is stored in `productId`.
-3. **Run `Create Promotion`** — a `percentage` promotion is created on that product, active on today's weekday. The `promotionId` is captured.
-4. **Run `Get Product`** — verify the response includes a `promotions` array with the newly created promotion summary (`id`, `type`, `discount_percent`, `weekdays`).
-5. **Run `Create Sale With Promotion`** — creates a sale using the promoted product. Verify each line item includes non-null `discount_amount`, `applied_promotion_id`, and `applied_promotion_type`. The `total` should be less than the undiscounted subtotal.
-6. **Run `Get Sale With Promotion`** — confirm the discount fields are persisted on the sale read.
-7. **(Optional) Run `Update Promotion`** then **`List Promotions`** to confirm the discount change is visible.
-8. **(Optional) Run `Disable Promotion`** then **`List Promotions`** — the promotion still appears but `enabled` is now `false`. Run `Get Product` to confirm the promotions summary no longer includes it.
+### Store-wide promotion
+
+5. **Run `Create Store Promotion`** — creates a `percentage` promotion (10 %) with `scope: "store"` (no `product_id`). Captures `storePromotionId`.
+6. **Run `Create Sale`** (or any sale) — if the store-wide promotion is active, sale items should include it in their `applied_promotions` array alongside any product-specific promotion.
+
+### Update and disable
+
+7. **(Optional) Run `Update Promotion`** — changes the promotion name, description, and discount to 25 %. Verify the response reflects the new values.
+8. **(Optional) Run `List Promotions`** — confirm the updated promotion is visible with the new `name`, `scope`, and `discount_percent`.
+9. **(Optional) Run `Disable Promotion`** then **`List Promotions`** — the promotion still appears but `enabled` is now `false`. Run `Get Product` to confirm the promotions summary no longer includes it.
 
 > **Caveat**: The existing `Create Sale` (flow #8) expects a hardcoded total of `7501.50`. If a promotion is active on that product when it runs, the discounted total will differ and the test will fail. For end-to-end promotions testing, run the promotions flow separately from the main collection run, or disable the promotion before re-running `Create Sale`.
 

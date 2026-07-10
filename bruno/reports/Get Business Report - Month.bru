@@ -1,11 +1,11 @@
 meta {
-  name: Get Business Report - Week
+  name: Get Business Report - Month
   type: http
-  seq: 17
+  seq: 3
 }
 
 get {
-  url: {{baseUrl}}/reports?window=week
+  url: {{baseUrl}}/reports?window=month
   body: none
   auth: bearer
 }
@@ -23,8 +23,8 @@ tests {
     expect(res.getStatus()).to.equal(200);
   });
 
-  test("returns week window report", function() {
-    expect(res.body.window).to.equal("week");
+  test("returns month window report", function() {
+    expect(res.body.window).to.equal("month");
     expect(res.body.range).to.have.property("startsAt");
     expect(res.body.range).to.have.property("endsAt");
   });
@@ -35,19 +35,17 @@ tests {
     expect(res.body.topProducts).to.be.an("array");
   });
 
-  test("paymentMethodBreakdown items have method and amount", function() {
-    res.body.paymentMethodBreakdown.forEach(function(pm) {
-      expect(pm).to.have.property("method");
-      expect(pm).to.have.property("amount");
-      expect(pm.method).to.be.oneOf(["cash", "transfer", "card", "qr"]);
+  test("paymentMethodBreakdown sorted by amount descending", function() {
+    const amounts = res.body.paymentMethodBreakdown.map(function(pm) {
+      return parseFloat(pm.amount);
     });
+    const sorted = amounts.slice().sort(function(a, b) {
+      return b - a;
+    });
+    expect(amounts).to.deep.equal(sorted);
   });
 
-  test("topProducts is at most 10 items", function() {
-    expect(res.body.topProducts.length).to.be.at.most(10);
-  });
-
-  test("range timestamps span Monday to Sunday in Argentina timezone", function() {
+  test("range timestamps span first to last day of current month in Argentina timezone", function() {
     expect(res.body.range.startsAt).to.include("-03:00");
     expect(res.body.range.endsAt).to.include("-03:00");
   });

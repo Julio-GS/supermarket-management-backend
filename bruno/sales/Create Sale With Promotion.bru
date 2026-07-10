@@ -1,7 +1,7 @@
 meta {
   name: Create Sale With Promotion
   type: http
-  seq: 23
+  seq: 8
 }
 
 post {
@@ -51,11 +51,27 @@ tests {
     expect(res.body.items).to.have.lengthOf(1);
   });
 
-  test("item has discount fields", function() {
+  test("item has legacy discount fields", function() {
     const item = res.body.items[0];
     expect(item).to.have.property("discount_amount");
     expect(item).to.have.property("applied_promotion_id");
     expect(item).to.have.property("applied_promotion_type");
+  });
+
+  test("item has applied_promotions array with stacked promotion metadata", function() {
+    const item = res.body.items[0];
+    expect(item).to.have.property("applied_promotions");
+    expect(item.applied_promotions).to.be.an("array");
+    if (item.applied_promotions.length > 0) {
+      const ap = item.applied_promotions[0];
+      expect(ap).to.have.property("promotion_id");
+      expect(ap).to.have.property("promotion_scope");
+      expect(ap.promotion_scope).to.be.oneOf(["product", "store"]);
+      expect(ap).to.have.property("promotion_type");
+      expect(ap.promotion_type).to.be.oneOf(["percentage", "two_x_one"]);
+      expect(ap).to.have.property("discount_amount");
+      expect(ap.discount_amount).to.be.a("string");
+    }
   });
 
   test("discount amount is a non-negative string", function() {

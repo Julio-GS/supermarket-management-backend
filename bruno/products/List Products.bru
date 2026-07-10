@@ -1,0 +1,44 @@
+meta {
+  name: List Products
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/products
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+vars:pre-request {
+  baseUrl: http://localhost:3001/api/v1
+}
+
+tests {
+  test("status is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+  
+  test("returns an array", function() {
+    expect(res.body).to.be.an("array");
+  });
+
+  test("products include store_promotions when applicable", function() {
+    if (res.body.length > 0) {
+      const product = res.body[0];
+      expect(product).to.have.property("promotions");
+      expect(product).to.have.property("store_promotions");
+      // store_promotions entries must have scope "store"
+      if (product.store_promotions && product.store_promotions.length > 0) {
+        for (const sp of product.store_promotions) {
+          expect(sp).to.have.property("scope");
+          expect(sp.scope).to.equal("store");
+        }
+      }
+    }
+  });
+}

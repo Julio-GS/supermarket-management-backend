@@ -1,0 +1,48 @@
+meta {
+  name: Get Product
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/products/{{productId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+vars:pre-request {
+  baseUrl: http://localhost:3001/api/v1
+  productId: b54175cb-5b45-42ce-a5ea-8a9f3a650190
+}
+
+tests {
+  test("status is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+  
+  test("returns the requested product", function() {
+    expect(res.body.id).to.equal(bru.getVar("productId"));
+  });
+  
+  test("product includes promotions summary when applicable", function() {
+    if (res.body.promotions && res.body.promotions.length > 0) {
+      const p = res.body.promotions[0];
+      expect(p).to.have.property("id");
+      expect(p).to.have.property("type");
+    }
+  });
+
+  test("product includes store_promotions field", function() {
+    expect(res.body).to.have.property("store_promotions");
+    if (res.body.store_promotions && res.body.store_promotions.length > 0) {
+      const sp = res.body.store_promotions[0];
+      expect(sp).to.have.property("id");
+      expect(sp).to.have.property("scope");
+      expect(sp.scope).to.equal("store");
+    }
+  });
+}

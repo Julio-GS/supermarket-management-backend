@@ -395,7 +395,9 @@ Base route: `/sales`. All routes require the bearer token and operate on sales o
       "quantity": 2
     }
   ],
-  "payment_methods": ["cash"]
+  "payment_methods": [
+    { "method": "cash", "amount": "300.00" }
+  ]
 }
 ```
 
@@ -404,7 +406,9 @@ Base route: `/sales`. All routes require the bearer token and operate on sales o
   "id": "b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a22",
   "user_id": "c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33",
   "total": "300.00",
-  "payment_methods": ["cash"],
+  "payment_methods": [
+    { "method": "cash", "amount": "300.00" }
+  ],
   "split_ticket_groups": null,
   "items": [
     {
@@ -412,7 +416,11 @@ Base route: `/sales`. All routes require the bearer token and operate on sales o
       "product_id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
       "quantity": 2,
       "unit_price": "150.00",
-      "subtotal": "300.00"
+      "subtotal": "300.00",
+      "discount_amount": "0.00",
+      "applied_promotions": [],
+      "applied_promotion_id": null,
+      "applied_promotion_type": null
     }
   ],
   "invoice_status": "none",
@@ -432,16 +440,17 @@ Fields:
 | Field | Required | Notes |
 |-------|----------|-------|
 | `items` | yes | Non-empty array. Each item needs a UUID `product_id` and `quantity >= 1`. |
-| `payment_methods` | yes | Non-empty, unique array. Allowed values: `cash`, `transfer`, `card`, `qr`. |
+| `payment_methods` | yes | Non-empty array of `{ method, amount }` objects. Each `method` must be unique. Allowed values for `method`: `cash`, `transfer`, `card`, `qr`. `amount` is a money string. |
 | `split_ticket_groups` | no | Exactly 2 groups when present. Labels must be unique and non-empty; allocations must cover the ordered quantities. |
 | `invoice_requested` | no | Boolean, defaults to `false`. |
 
 Notes:
 
-- `payment_methods` is normalized to backend order (`cash`, `transfer`, `card`, `qr`) in responses.
+- `payment_methods` response order is normalized by the backend — do not rely on request order.
 - `split_ticket_groups` is returned only when the sale was split-ticketed, and it is sorted by label.
 - The frontend should not rely on request order when comparing these arrays.
 - Split-ticket is operational/visual only: one sale, one payment set, one invoice flow.
+- Sale item responses always include `discount_amount`, `applied_promotions`, `applied_promotion_id`, and `applied_promotion_type`. See [`promotions-frontend-integration.md`](./promotions-frontend-integration.md) for details.
 
 ### Split-ticket sale
 
@@ -455,7 +464,10 @@ Notes:
       "quantity": 2
     }
   ],
-  "payment_methods": ["cash", "card"],
+  "payment_methods": [
+    { "method": "cash", "amount": "150.00" },
+    { "method": "card", "amount": "150.00" }
+  ],
   "split_ticket_groups": [
     {
       "label": "A",
@@ -475,7 +487,10 @@ Notes:
 
 ```json
 {
-  "payment_methods": ["cash", "card"],
+  "payment_methods": [
+    { "method": "cash", "amount": "150.00" },
+    { "method": "card", "amount": "150.00" }
+  ],
   "split_ticket_groups": [
     {
       "label": "A",
@@ -513,7 +528,9 @@ Use this only when the cashier explicitly requests ARCA electronic invoicing. V1
 ```json
 {
   "invoice_requested": true,
-  "payment_methods": ["cash"],
+  "payment_methods": [
+    { "method": "cash", "amount": "121.00" }
+  ],
   "items": [
     {
       "product_id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
@@ -528,7 +545,9 @@ Use this only when the cashier explicitly requests ARCA electronic invoicing. V1
   "id": "b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a22",
   "user_id": "c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33",
   "total": "121.00",
-  "payment_methods": ["cash"],
+  "payment_methods": [
+    { "method": "cash", "amount": "121.00" }
+  ],
   "split_ticket_groups": null,
   "items": [
     {
@@ -536,7 +555,11 @@ Use this only when the cashier explicitly requests ARCA electronic invoicing. V1
       "product_id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
       "quantity": 1,
       "unit_price": "121.00",
-      "subtotal": "121.00"
+      "subtotal": "121.00",
+      "discount_amount": "0.00",
+      "applied_promotions": [],
+      "applied_promotion_id": null,
+      "applied_promotion_type": null
     }
   ],
   "invoice_status": "issued",
@@ -605,7 +628,9 @@ With pagination parameters (`page`, `limit`, `sort`), it returns `PageResponse<S
     "id": "b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a22",
     "user_id": "c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33",
     "total": "300.00",
-    "payment_methods": ["cash"],
+    "payment_methods": [
+      { "method": "cash", "amount": "300.00" }
+    ],
     "split_ticket_groups": null,
     "items": [...],
     "invoice_status": "none",
@@ -634,7 +659,9 @@ GET /sales?page=1&limit=20&sort=created_at:desc
       "id": "b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a22",
       "user_id": "c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33",
       "total": "300.00",
-      "payment_methods": ["cash"],
+      "payment_methods": [
+        { "method": "cash", "amount": "300.00" }
+      ],
       "split_ticket_groups": null,
       "items": [...],
       "invoice_status": "none",
@@ -778,14 +805,36 @@ interface ProductResponse {
   facturable: boolean;
   maneja_stock: boolean;
   codigos: string[];
+  promotions: ProductPromotionSummary[] | null;       // added — see promotions doc
+  store_promotions: ProductPromotionSummary[] | null; // added — see promotions doc
   created_at: string; // ISO 8601
   updated_at: string; // ISO 8601
 }
 
 type ProductListResponse = ProductResponse[] | PageResponse<ProductResponse>;
 
+// See promotions-frontend-integration.md for full promotion types
+type PromotionType = 'percentage' | 'two_x_one';
+
+interface ProductPromotionSummary {
+  id: string;
+  name: string;
+  description: string | null;
+  scope: 'product' | 'store';
+  type: PromotionType;
+  discount_percent: number | null;
+  start_date: string | null;
+  end_date: string | null;
+  weekdays: number[] | null;
+}
+
 // Sales
 type PaymentMethod = 'cash' | 'transfer' | 'card' | 'qr';
+
+interface PaymentMethodAllocation {
+  method: PaymentMethod;
+  amount: string;
+}
 
 interface SaleItemRequest {
   product_id: string;
@@ -804,9 +853,16 @@ interface SplitTicketGroupRequest {
 
 interface CreateSaleRequest {
   items: SaleItemRequest[];
-  payment_methods: PaymentMethod[];
+  payment_methods: PaymentMethodAllocation[];
   split_ticket_groups?: SplitTicketGroupRequest[];
   invoice_requested?: boolean;
+}
+
+interface AppliedPromotion {
+  promotion_id: string;
+  promotion_scope: 'product' | 'store';
+  promotion_type: 'percentage' | 'two_x_one';
+  discount_amount: string;
 }
 
 interface SaleItemResponse {
@@ -815,6 +871,10 @@ interface SaleItemResponse {
   quantity: number;
   unit_price: string;
   subtotal: string;
+  discount_amount: string;                 // "0.00" if no promotion applied
+  applied_promotions: AppliedPromotion[];  // [] if no promotion applied
+  applied_promotion_id: string | null;     // legacy — best product promotion only
+  applied_promotion_type: PromotionType | null; // legacy
 }
 
 interface SaleSplitTicketGroupItemResponse {
@@ -835,7 +895,7 @@ interface SaleResponse {
   id: string;
   user_id: string;
   total: string;
-  payment_methods: PaymentMethod[];
+  payment_methods: PaymentMethodAllocation[];
   split_ticket_groups: SaleSplitTicketGroupResponse[] | null;
   items: SaleItemResponse[];
   invoice_status: InvoiceStatus;
@@ -1002,12 +1062,16 @@ The collection uses runtime variables (`username`, `password`, `token`, `product
 - [ ] Frontend treats `invoice_status: "none"` as a non-fiscal sale and hides CAE/comprobante details.
 - [ ] Frontend displays `cae`, `cae_vto`, `cbte_nro`, `cbte_tipo`, and `pto_vta` when `invoice_status: "issued"`.
 - [ ] Frontend displays backend-computed `total`, `unit_price`, and `subtotal` from sale responses.
+- [ ] Frontend displays `discount_amount`, `applied_promotions`, and legacy discount fields from sale item responses.
+- [ ] Sale `payment_methods` are sent as `PaymentMethodAllocation[]` objects (`{ method, amount }`), never as plain strings.
+- [ ] Product responses include `promotions` and `store_promotions` fields (both `ProductPromotionSummary[] | null`).
 - [ ] `409 Conflict` is handled for duplicate barcodes and duplicate usernames.
 - [ ] `404 Not Found` is handled for missing products or sales.
 
 ### Sales validation checklist
 
-- [ ] Sale create requests always send `items` and `payment_methods`.
+- [ ] Sale create requests always send `items` and `payment_methods` as `{ method, amount }` objects.
+- [ ] Frontend computes `amount` values in `payment_methods` based on how the cashier splits the total.
 - [ ] Split-ticket checkout uses `split_ticket_groups` only when needed and enforces exactly 2 unique labels.
 - [ ] Frontend treats `payment_methods` as normalized response data, not request-order data.
 - [ ] Frontend treats `split_ticket_groups` as `null` when the sale is not split-ticketed.

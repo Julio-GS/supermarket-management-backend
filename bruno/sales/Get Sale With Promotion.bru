@@ -1,7 +1,7 @@
 meta {
   name: Get Sale With Promotion
   type: http
-  seq: 24
+  seq: 9
 }
 
 get {
@@ -27,13 +27,26 @@ tests {
     expect(res.body.id).to.equal(bru.getVar("promoSaleId"));
   });
 
-  test("items include discount fields", function() {
+  test("items include legacy discount fields", function() {
     expect(res.body.items).to.be.an("array");
     expect(res.body.items).to.have.lengthOf.at.least(1);
     const item = res.body.items[0];
     expect(item).to.have.property("discount_amount");
     expect(item).to.have.property("applied_promotion_id");
     expect(item).to.have.property("applied_promotion_type");
+  });
+
+  test("applied_promotions array is present with stacked metadata", function() {
+    const item = res.body.items[0];
+    expect(item).to.have.property("applied_promotions");
+    expect(item.applied_promotions).to.be.an("array");
+    if (item.applied_promotions.length > 0) {
+      const ap = item.applied_promotions[0];
+      expect(ap).to.have.property("promotion_id");
+      expect(ap).to.have.property("promotion_scope");
+      expect(ap).to.have.property("promotion_type");
+      expect(ap).to.have.property("discount_amount");
+    }
   });
 
   test("promotion id matches the one created", function() {

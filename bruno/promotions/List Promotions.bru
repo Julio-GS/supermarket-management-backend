@@ -1,7 +1,7 @@
 meta {
   name: List Promotions
   type: http
-  seq: 20
+  seq: 3
 }
 
 get {
@@ -27,12 +27,22 @@ tests {
     expect(res.body).to.be.an("array");
   });
   
-  test("each promotion has required fields", function() {
+  test("each promotion has required fields including new shape", function() {
     expect(res.body).to.have.lengthOf.at.least(1);
     const promo = res.body[0];
     expect(promo).to.have.property("id");
+    expect(promo).to.have.property("name");
+    expect(promo).to.have.property("scope");
+    expect(promo.scope).to.be.oneOf(["product", "store"]);
     expect(promo).to.have.property("type");
     expect(promo).to.have.property("product_id");
     expect(promo).to.have.property("enabled");
+  });
+
+  test("created promotion is present in the list", function() {
+    const created = res.body.find((p) => p.id === bru.getVar("promotionId"));
+    expect(created).to.exist;
+    expect(created.name).to.be.a("string");
+    expect(created.scope).to.equal("product");
   });
 }
