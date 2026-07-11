@@ -200,6 +200,17 @@ describe("Promotion DTOs", () => {
       expect(errors).toHaveLength(0);
     });
 
+    it("allows explicitly clearing schedule fields", async () => {
+      const dto = plainToInstance(UpdatePromotionDto, {
+        start_date: null,
+        end_date: null,
+        weekdays: [1, 3, 5],
+      } as Partial<UpdatePromotionDto>);
+
+      const errors = await validate(dto as object);
+      expect(errors).toHaveLength(0);
+    });
+
     it("accepts type change", async () => {
       const dto = plainToInstance(UpdatePromotionDto, {
         name: "Updated promotion",

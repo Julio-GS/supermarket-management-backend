@@ -42,18 +42,23 @@ export class TypeOrmPromotionRepository extends PromotionRepositoryPort {
     const existing = await this.promotionRepo.findOne({ where: { id } });
     if (!existing) return null;
 
-    await this.promotionRepo.update(id, {
-      name: input.name,
-      description: input.description,
-      scope: input.scope,
-      product_id: input.product_id,
-      type: input.type,
-      discount_percent: input.discount_percent,
-      start_date: input.start_date,
-      end_date: input.end_date,
-      weekdays: input.weekdays,
-      enabled: input.enabled,
-    });
+    const updateData: Partial<PromotionEntity> = {};
+
+    if (input.name !== undefined) updateData.name = input.name;
+    if (input.description !== undefined) updateData.description = input.description;
+    if (input.scope !== undefined) updateData.scope = input.scope;
+    if (input.product_id !== undefined) updateData.product_id = input.product_id;
+    if (input.type !== undefined) updateData.type = input.type;
+    if (input.discount_percent !== undefined)
+      updateData.discount_percent = input.discount_percent;
+    if (input.start_date !== undefined) updateData.start_date = input.start_date;
+    if (input.end_date !== undefined) updateData.end_date = input.end_date;
+    if (input.weekdays !== undefined) updateData.weekdays = input.weekdays;
+    if (input.enabled !== undefined) updateData.enabled = input.enabled;
+
+    if (Object.keys(updateData).length > 0) {
+      await this.promotionRepo.update(id, updateData);
+    }
 
     const refreshed = await this.promotionRepo.findOne({ where: { id } });
     return refreshed ? this.toDomain(refreshed) : null;
@@ -92,8 +97,8 @@ export class TypeOrmPromotionRepository extends PromotionRepositoryPort {
       .map((entity) => this.toDomain(entity));
   }
 
-  async disable(id: string): Promise<void> {
-    await this.promotionRepo.update(id, { enabled: false });
+  async delete(id: string): Promise<void> {
+    await this.promotionRepo.delete(id);
   }
 
   private isScheduleActive(

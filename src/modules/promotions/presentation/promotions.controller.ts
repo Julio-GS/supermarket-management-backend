@@ -19,7 +19,7 @@ import {
 } from "./promotion.dto";
 import { CreatePromotionUseCase } from "../application/create-promotion.use-case";
 import { UpdatePromotionUseCase } from "../application/update-promotion.use-case";
-import { DisablePromotionUseCase } from "../application/disable-promotion.use-case";
+import { DeletePromotionUseCase } from "../application/delete-promotion.use-case";
 import { ListPromotionsUseCase } from "../application/list-promotions.use-case";
 import { Promotion } from "../domain/promotion.entity";
 
@@ -41,13 +41,20 @@ function toPromotionResponse(promotion: Promotion): PromotionResponseDto {
   };
 }
 
+function parseOptionalUpdateDate(
+  value: string | null | undefined,
+): Date | null | undefined {
+  if (value === undefined) return undefined;
+  return value === null ? null : new Date(value);
+}
+
 @Controller("promotions")
 @UseGuards(JwtAuthGuard)
 export class PromotionsController {
   constructor(
     private readonly createPromotion: CreatePromotionUseCase,
     private readonly updatePromotion: UpdatePromotionUseCase,
-    private readonly disablePromotion: DisablePromotionUseCase,
+    private readonly deletePromotion: DeletePromotionUseCase,
     private readonly listPromotions: ListPromotionsUseCase,
   ) {}
 
@@ -87,8 +94,8 @@ export class PromotionsController {
       product_id: dto.product_id,
       type: dto.type,
       discount_percent: dto.discount_percent,
-      start_date: dto.start_date ? new Date(dto.start_date) : null,
-      end_date: dto.end_date ? new Date(dto.end_date) : null,
+      start_date: parseOptionalUpdateDate(dto.start_date),
+      end_date: parseOptionalUpdateDate(dto.end_date),
       weekdays: dto.weekdays,
       enabled: dto.enabled,
     });
@@ -97,9 +104,9 @@ export class PromotionsController {
 
   @Delete(":id")
   @HttpCode(HttpStatus.NO_CONTENT)
-  async disable(
+  async delete(
     @Param("id", ParseUUIDPipe) id: string,
   ): Promise<void> {
-    await this.disablePromotion.execute(id);
+    await this.deletePromotion.execute(id);
   }
 }

@@ -3,8 +3,28 @@ import { TypeOrmPromotionRepository } from "./typeorm-promotion.repository";
 import { PromotionEntity } from "./typeorm-promotion.entity";
 import { Promotion } from "../domain/promotion.entity";
 
+function makePromotionEntity(
+  overrides: Partial<PromotionEntity> = {},
+): PromotionEntity {
+  return Object.assign(new PromotionEntity(), {
+    id: "promo-id",
+    name: "Weekend special",
+    description: "10% off selected products",
+    scope: "product",
+    product_id: "prod-1",
+    type: "percentage",
+    discount_percent: 10,
+    start_date: null,
+    end_date: null,
+    weekdays: null,
+    enabled: true,
+    created_at: new Date("2026-07-01T00:00:00Z"),
+    updated_at: new Date("2026-07-01T00:00:00Z"),
+  }, overrides);
+}
+
 describe("TypeOrmPromotionRepository", () => {
-  let promotionRepo: jest.Mocked<Pick<Repository<PromotionEntity>, "create" | "save" | "find" | "findOne" | "findBy" | "update">>;
+  let promotionRepo: jest.Mocked<Pick<Repository<PromotionEntity>, "create" | "save" | "find" | "findOne" | "findBy" | "update" | "delete">>;
   let repository: TypeOrmPromotionRepository;
 
   beforeEach(() => {
@@ -15,6 +35,7 @@ describe("TypeOrmPromotionRepository", () => {
       findOne: jest.fn(),
       findBy: jest.fn(),
       update: jest.fn(),
+      delete: jest.fn(),
     };
 
     repository = new TypeOrmPromotionRepository(
@@ -310,6 +331,92 @@ describe("TypeOrmPromotionRepository", () => {
       expect(result?.enabled).toBe(false);
     });
 
+    it("preserves a date-range schedule when only enabled changes", async () => {
+      const originalEntity = makePromotionEntity({
+        start_date: new Date("2026-07-01T00:00:00Z"),
+        end_date: new Date("2026-07-31T23:59:59Z"),
+        weekdays: null,
+      });
+      const refreshedEntity = makePromotionEntity({
+        ...originalEntity,
+        enabled: false,
+        updated_at: new Date("2026-07-02T00:00:00Z"),
+      });
+
+      (promotionRepo.findOne as jest.Mock)
+        .mockResolvedValueOnce(originalEntity)
+        .mockResolvedValueOnce(refreshedEntity);
+      (promotionRepo.update as jest.Mock).mockResolvedValue(undefined);
+
+      const result = await repository.update("promo-id", { enabled: false });
+
+      expect(promotionRepo.update).toHaveBeenCalledWith("promo-id", {
+        enabled: false,
+      });
+      expect(result?.start_date).toEqual(originalEntity.start_date);
+      expect(result?.end_date).toEqual(originalEntity.end_date);
+    });
+
+    it("preserves a weekday schedule when only enabled changes", async () => {
+      const originalEntity = makePromotionEntity({
+        start_date: null,
+        end_date: null,
+        weekdays: [1, 3, 5],
+      });
+      const refreshedEntity = makePromotionEntity({
+        ...originalEntity,
+        enabled: false,
+        updated_at: new Date("2026-07-02T00:00:00Z"),
+      });
+
+      (promotionRepo.findOne as jest.Mock)
+        .mockResolvedValueOnce(originalEntity)
+        .mockResolvedValueOnce(refreshedEntity);
+      (promotionRepo.update as jest.Mock).mockResolvedValue(undefined);
+
+      const result = await repository.update("promo-id", { enabled: false });
+
+      expect(promotionRepo.update).toHaveBeenCalledWith("promo-id", {
+        enabled: false,
+      });
+      expect(result?.weekdays).toEqual([1, 3, 5]);
+    });
+
+    it("allows explicit schedule changes", async () => {
+      const originalEntity = makePromotionEntity({
+        start_date: new Date("2026-07-01T00:00:00Z"),
+        end_date: new Date("2026-07-31T23:59:59Z"),
+        weekdays: null,
+      });
+      const refreshedEntity = makePromotionEntity({
+        ...originalEntity,
+        start_date: null,
+        end_date: null,
+        weekdays: [2, 4, 6],
+        updated_at: new Date("2026-07-02T00:00:00Z"),
+      });
+
+      (promotionRepo.findOne as jest.Mock)
+        .mockResolvedValueOnce(originalEntity)
+        .mockResolvedValueOnce(refreshedEntity);
+      (promotionRepo.update as jest.Mock).mockResolvedValue(undefined);
+
+      const result = await repository.update("promo-id", {
+        start_date: null,
+        end_date: null,
+        weekdays: [2, 4, 6],
+      });
+
+      expect(promotionRepo.update).toHaveBeenCalledWith("promo-id", {
+        start_date: null,
+        end_date: null,
+        weekdays: [2, 4, 6],
+      });
+      expect(result?.start_date).toBeNull();
+      expect(result?.end_date).toBeNull();
+      expect(result?.weekdays).toEqual([2, 4, 6]);
+    });
+
     it("returns null when promotion does not exist", async () => {
       (promotionRepo.findOne as jest.Mock).mockResolvedValue(null);
 
@@ -320,16 +427,13 @@ describe("TypeOrmPromotionRepository", () => {
     });
   });
 
-  describe("disable", () => {
-    it("sets enabled to false", async () => {
-      (promotionRepo.update as jest.Mock).mockResolvedValue(undefined);
+  describe("delete", () => {
+    it("removes the promotion record by id", async () => {
+      (promotionRepo.delete as jest.Mock).mockResolvedValue(undefined);
 
-      await repository.disable("promo-id");
+      await repository.delete("promo-id");
 
-      expect(promotionRepo.update).toHaveBeenCalledWith(
-        "promo-id",
-        { enabled: false },
-      );
+      expect(promotionRepo.delete).toHaveBeenCalledWith("promo-id");
     });
   });
 });

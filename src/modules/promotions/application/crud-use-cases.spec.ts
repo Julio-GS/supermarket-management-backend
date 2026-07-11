@@ -1,6 +1,6 @@
 import { Test, TestingModule } from "@nestjs/testing";
 import { UpdatePromotionUseCase } from "./update-promotion.use-case";
-import { DisablePromotionUseCase } from "./disable-promotion.use-case";
+import { DeletePromotionUseCase } from "./delete-promotion.use-case";
 import { ListPromotionsUseCase } from "./list-promotions.use-case";
 import { PromotionRepositoryPort } from "./promotion.repository.port";
 import { NotFoundError, ValidationError } from "../../../shared/errors/domain.error";
@@ -94,25 +94,25 @@ describe("UpdatePromotionUseCase", () => {
   });
 });
 
-describe("DisablePromotionUseCase", () => {
-  let useCase: DisablePromotionUseCase;
-  let repo: jest.Mocked<Pick<PromotionRepositoryPort, "findById" | "disable">>;
+describe("DeletePromotionUseCase", () => {
+  let useCase: DeletePromotionUseCase;
+  let repo: jest.Mocked<Pick<PromotionRepositoryPort, "findById" | "delete">>;
 
   beforeEach(async () => {
-    repo = { findById: jest.fn(), disable: jest.fn() };
+    repo = { findById: jest.fn(), delete: jest.fn() };
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        DisablePromotionUseCase,
+        DeletePromotionUseCase,
         { provide: PromotionRepositoryPort, useValue: repo },
       ],
     }).compile();
-    useCase = module.get(DisablePromotionUseCase);
+    useCase = module.get(DeletePromotionUseCase);
   });
 
-  it("disables an existing promotion", async () => {
+  it("deletes an existing promotion", async () => {
     repo.findById.mockResolvedValue(makePromo());
     await useCase.execute("p1");
-    expect(repo.disable).toHaveBeenCalledWith("p1");
+    expect(repo.delete).toHaveBeenCalledWith("p1");
   });
 
   it("throws NotFoundError when missing", async () => {

@@ -3,7 +3,7 @@ import { PromotionRepositoryPort } from "./promotion.repository.port";
 import { NotFoundError } from "../../../shared/errors/domain.error";
 
 @Injectable()
-export class DisablePromotionUseCase {
+export class DeletePromotionUseCase {
   constructor(private readonly promoRepo: PromotionRepositoryPort) {}
 
   async execute(id: string): Promise<void> {
@@ -11,6 +11,7 @@ export class DisablePromotionUseCase {
     if (!existing) {
       throw new NotFoundError(`Promotion ${id} not found`);
     }
-    await this.promoRepo.disable(id);
+
+    await this.promoRepo.delete(id);
   }
 }

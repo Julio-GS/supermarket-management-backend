@@ -41,5 +41,5 @@ export abstract class PromotionRepositoryPort {
     productIds: string[],
     now?: Date,
   ): Promise<Promotion[]>;
-  abstract disable(id: string): Promise<void>;
+  abstract delete(id: string): Promise<void>;
 }

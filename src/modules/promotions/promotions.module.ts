@@ -6,7 +6,7 @@ import { TypeOrmPromotionRepository } from "./infrastructure/typeorm-promotion.r
 import { PromotionEntity } from "./infrastructure/typeorm-promotion.entity";
 import { CreatePromotionUseCase } from "./application/create-promotion.use-case";
 import { UpdatePromotionUseCase } from "./application/update-promotion.use-case";
-import { DisablePromotionUseCase } from "./application/disable-promotion.use-case";
+import { DeletePromotionUseCase } from "./application/delete-promotion.use-case";
 import { ListPromotionsUseCase } from "./application/list-promotions.use-case";
 import { PromotionResolverService } from "./application/promotion-resolver.service";
 
@@ -20,7 +20,7 @@ import { PromotionResolverService } from "./application/promotion-resolver.servi
     },
     CreatePromotionUseCase,
     UpdatePromotionUseCase,
-    DisablePromotionUseCase,
+    DeletePromotionUseCase,
     ListPromotionsUseCase,
     PromotionResolverService,
   ],
