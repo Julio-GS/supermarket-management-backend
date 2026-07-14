@@ -1,0 +1,62 @@
+meta {
+  name: Get Provider Purchases Report - Day
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{baseUrl}}/reports/provider-purchases/report?window=day
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+vars:pre-request {
+  baseUrl: http://localhost:3001/api/v1
+}
+
+tests {
+  test("status is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+  
+  test("returns day window provider purchase report", function() {
+    expect(res.body.window).to.equal("day");
+    expect(res.body.range).to.have.property("startsAt");
+    expect(res.body.range).to.have.property("endsAt");
+  });
+  
+  test("has required aggregate fields", function() {
+    expect(res.body.totalAmount).to.be.a("string");
+    expect(res.body.totalAmount).to.match(/^\d+(\.\d{1,2})?$/);
+    expect(res.body.purchaseCount).to.be.a("number");
+    expect(res.body.purchaseCount).to.be.at.least(1);
+    expect(res.body.paymentMethodBreakdown).to.be.an("array");
+  });
+  
+  test("range timestamps include Argentina timezone offset", function() {
+    expect(res.body.range.startsAt).to.include("-03:00");
+    expect(res.body.range.endsAt).to.include("-03:00");
+  });
+  
+  test("payment method breakdown is sorted descending", function() {
+    const amounts = res.body.paymentMethodBreakdown.map(function(pm) {
+      return parseFloat(pm.amount);
+    });
+    const sorted = amounts.slice().sort(function(a, b) {
+      return b - a;
+    });
+    expect(amounts).to.deep.equal(sorted);
+  });
+  
+  test("cleared payment methods are grouped as unknown", function() {
+    const unknown = res.body.paymentMethodBreakdown.find(function(pm) {
+      return pm.method === "unknown";
+    });
+    expect(unknown).to.exist;
+    expect(parseFloat(unknown.amount)).to.be.greaterThan(0);
+  });
+}

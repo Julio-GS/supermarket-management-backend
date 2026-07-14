@@ -1,0 +1,56 @@
+meta {
+  name: Update Provider Purchase
+  type: http
+  seq: 6
+}
+
+put {
+  url: {{baseUrl}}/reports/provider-purchases/{{providerPurchaseId}}
+  body: json
+  auth: bearer
+}
+
+headers {
+  Content-Type: application/json
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "provider_name": "{{updatedProviderPurchaseName}}",
+    "amount": "1650.25",
+    "payment_method": null
+  }
+}
+
+vars:pre-request {
+  baseUrl: http://localhost:3000/api/v1
+}
+
+script:pre-request {
+  bru.setVar("updatedProviderPurchaseName", "Bruno Provider Purchase Updated " + Date.now());
+}
+
+tests {
+  test("status is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("purchase id is unchanged", function() {
+    expect(res.body.id).to.equal(bru.getVar("providerPurchaseId"));
+  });
+
+  test("partial update is applied", function() {
+    expect(res.body.provider_name).to.equal(bru.getVar("updatedProviderPurchaseName"));
+    expect(res.body.amount).to.equal("1650.25");
+    expect(res.body.payment_method).to.equal(null);
+  });
+
+  test("timestamps are present", function() {
+    expect(res.body.created_at).to.be.a("string");
+    expect(res.body.updated_at).to.be.a("string");
+  });
+}

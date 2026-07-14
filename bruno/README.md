@@ -1,7 +1,7 @@
 # Supermarket MVP API — Bruno Collection
 
 This collection covers the main MVP flow of the NestJS backend:
-authentication, product CRUD, barcode conflict handling, sales with payment methods, split tickets, ARCA invoicing, and promotions (product-specific and store-wide).
+authentication, product CRUD, barcode conflict handling, sales with payment methods, split tickets, ARCA invoicing, promotions (product-specific and store-wide), and provider purchase reporting.
 
 ## Requirements
 
@@ -45,7 +45,14 @@ bruno/
 ├── reports/
 │   ├── Get Business Report - Day.bru
 │   ├── Get Business Report - Week.bru
-│   └── Get Business Report - Month.bru
+│   ├── Get Business Report - Month.bru
+│   ├── Create Provider Purchase.bru
+│   ├── List Provider Purchases.bru
+│   ├── Update Provider Purchase.bru
+│   ├── Get Provider Purchases Report - Day.bru
+│   ├── Get Provider Purchases Report - Week.bru
+│   ├── Get Provider Purchases Report - Month.bru
+│   └── Delete Provider Purchase.bru
 └── misc/
     ├── Protected Without Token.bru
     └── prueba.bru
@@ -95,7 +102,7 @@ bru run "promotions" --env Local
 |----------|---------------------------------|------------------------------------------|
 | `baseUrl`| `http://localhost:3000/api/v1`  | Base URL for all requests.               |
 
-Collection variables (`username`, `password`, `token`, `productId`, `saleId`, `splitTicketSaleId`, `promotionId`, `storePromotionId`, `promoSaleId`, `cae`, `cbteNro`, barcodes) are generated and extracted at runtime by pre-request and post-response scripts.
+Collection variables (`username`, `password`, `token`, `productId`, `saleId`, `splitTicketSaleId`, `promotionId`, `storePromotionId`, `promoSaleId`, `providerPurchaseId`, `cae`, `cbteNro`, barcodes) are generated and extracted at runtime by pre-request and post-response scripts.
 
 ## Covered flows
 
@@ -132,9 +139,16 @@ Collection variables (`username`, `password`, `token`, `productId`, `saleId`, `s
 22. **Get Business Report - Day** — fetches today's business report with payment method breakdown and top products.
 23. **Get Business Report - Week** — fetches the current week's business report.
 24. **Get Business Report - Month** — fetches the current month's business report with descending payment method sort verification.
+25. **Create Provider Purchase** — creates a provider purchase under `/reports/provider-purchases`; stores `providerPurchaseId`.
+26. **List Provider Purchases** — lists all provider purchases and verifies the created row is present.
+27. **Update Provider Purchase** — edits the created provider purchase and clears `payment_method` with `null`.
+28. **Get Provider Purchases Report - Day** — fetches today's provider purchase report and verifies aggregate fields plus the `unknown` bucket for cleared payment methods.
+29. **Get Provider Purchases Report - Week** — fetches the current week's provider purchase report.
+30. **Get Provider Purchases Report - Month** — fetches the current month's provider purchase report with descending payment method sort verification.
+31. **Delete Provider Purchase** — deletes the created provider purchase and expects `204`.
 
 ### Misc
-25. **Protected Without Token** — calls a protected route with no token and expects `401`.
+32. **Protected Without Token** — calls a protected route with no token and expects `401`.
 
 ## Promotions flow (manual)
 
@@ -162,5 +176,16 @@ The following requests cover end-to-end promotions testing. Run them in order af
 9. **(Optional) Run `Disable Promotion`** then **`List Promotions`** — the promotion still appears but `enabled` is now `false`. Run `Get Product` to confirm the promotions summary no longer includes it.
 
 > **Caveat**: The existing `Create Sale` (flow #8) expects a hardcoded total of `7501.50`. If a promotion is active on that product when it runs, the discounted total will differ and the test will fail. For end-to-end promotions testing, run the promotions flow separately from the main collection run, or disable the promotion before re-running `Create Sale`.
+
+## Provider purchases flow
+
+Run these in order after `Login` has populated `token`:
+
+1. **Run `Create Provider Purchase`** — creates a provider purchase and stores `providerPurchaseId`.
+2. **Run `List Provider Purchases`** — confirms the created row is present and the list remains newest-first.
+3. **Run `Update Provider Purchase`** — updates the amount and clears `payment_method` with `null`.
+4. **Run `Get Provider Purchases Report - Day`** — validates aggregate totals, purchase count, timezone range, and confirms cleared methods appear under `unknown`.
+5. **Run `Get Provider Purchases Report - Week`** and **`Get Provider Purchases Report - Month`** — validates the other supported report windows.
+6. **Run `Delete Provider Purchase`** — removes the created row and expects `204`.
 
 > No `DATABASE_URL` or other secrets are stored in these files.

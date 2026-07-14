@@ -1,0 +1,60 @@
+meta {
+  name: Create Provider Purchase
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/reports/provider-purchases
+  body: json
+  auth: bearer
+}
+
+headers {
+  Content-Type: application/json
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "provider_name": "Proveedor jamon",
+    "amount": "1450",
+    "payment_method": "transfer"
+  }
+}
+
+vars:pre-request {
+  baseUrl: http://localhost:3001/api/v1
+}
+
+script:pre-request {
+  bru.setVar("providerPurchaseName", "Bruno Provider Purchase " + Date.now());
+}
+
+script:post-response {
+  bru.setVar("providerPurchaseId", res.body.id);
+}
+
+tests {
+  test("status is 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+  
+  test("returns a provider purchase id", function() {
+    expect(res.body.id).to.be.a("string");
+  });
+  
+  test("returns the created purchase fields", function() {
+    expect(res.body.provider_name).to.equal(bru.getVar("providerPurchaseName"));
+    expect(res.body.amount).to.equal("1450.75");
+    expect(res.body.payment_method).to.equal("transfer");
+  });
+  
+  test("returns timestamps", function() {
+    expect(res.body.created_at).to.be.a("string");
+    expect(res.body.updated_at).to.be.a("string");
+  });
+}

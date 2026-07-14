@@ -1,7 +1,9 @@
 import { Injectable } from "@nestjs/common";
-import { ReportRepositoryPort } from "./report.repository.port";
+import { ProviderPurchaseRepositoryPort } from "./provider-purchase.repository.port";
 import {
-  BusinessReport,
+  ProviderPurchaseReport,
+} from "../domain/provider-purchase.entity";
+import {
   ReportWindow,
   REPORT_WINDOWS,
 } from "../domain/report.entity";
@@ -12,15 +14,13 @@ import { ValidationError } from "../../../shared/errors/domain.error";
 import { resolveWindowBounds, formatReportRange } from "./report-window";
 
 @Injectable()
-export class GetBusinessReportUseCase {
-  private static readonly TOP_PRODUCTS_LIMIT = 10;
-
+export class GetProviderPurchaseReportUseCase {
   constructor(
-    private readonly reportRepo: ReportRepositoryPort,
+    private readonly repo: ProviderPurchaseRepositoryPort,
     private readonly cache: ReadCachePort,
   ) {}
 
-  async execute(window: ReportWindow): Promise<BusinessReport> {
+  async execute(window: ReportWindow): Promise<ProviderPurchaseReport> {
     if (!REPORT_WINDOWS.includes(window)) {
       throw new ValidationError(
         `Unsupported report window "${window}". Use day, week, or month.`,
@@ -31,25 +31,22 @@ export class GetBusinessReportUseCase {
 
     const cacheKey = buildCacheKey(
       REPORT_READ_CACHE_POLICY.prefix,
-      "business",
+      "provider-purchase",
       { window, startsAt: startsAt.toISOString(), endsAt: endsAt.toISOString() },
     );
 
     const data = await this.cache.getOrSet(
       cacheKey,
       REPORT_READ_CACHE_POLICY.ttlMs,
-      () => this.reportRepo.getBusinessReport(startsAt, endsAt),
+      () => this.repo.aggregateByProvider(startsAt, endsAt),
     );
 
     return {
       window,
       range: formatReportRange(startsAt, endsAt),
-      totalCollectedAmount: data.totalCollectedAmount,
+      totalAmount: data.totalAmount,
+      purchaseCount: data.purchaseCount,
       paymentMethodBreakdown: data.paymentMethodBreakdown,
-      topProducts: data.topProducts.slice(
-        0,
-        GetBusinessReportUseCase.TOP_PRODUCTS_LIMIT,
-      ),
     };
   }
 }

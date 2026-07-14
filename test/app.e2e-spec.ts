@@ -1225,4 +1225,154 @@ describe("AppController (e2e)", () => {
         .expect(409);
     });
   });
+
+  // ─── Provider Purchase E2E ──────────────────────────────────────
+
+  describe("Provider Purchases", () => {
+    let purchaseId: string;
+
+    it("rejects POST without token", () => {
+      return request(app.getHttpServer())
+        .post("/api/v1/reports/provider-purchases")
+        .send({ provider_name: "Test", amount: "100.00" })
+        .expect(401);
+    });
+
+    it("rejects POST with missing required fields", async () => {
+      await request(app.getHttpServer())
+        .post("/api/v1/reports/provider-purchases")
+        .set("Authorization", `Bearer ${token}`)
+        .send({ amount: "100.00" })
+        .expect(400);
+
+      await request(app.getHttpServer())
+        .post("/api/v1/reports/provider-purchases")
+        .set("Authorization", `Bearer ${token}`)
+        .send({ provider_name: "Test" })
+        .expect(400);
+    });
+
+    it("POST /reports/provider-purchases creates a purchase with required fields", async () => {
+      const res = await request(app.getHttpServer())
+        .post("/api/v1/reports/provider-purchases")
+        .set("Authorization", `Bearer ${token}`)
+        .send({ provider_name: "Proveedor Alpha", amount: "500.00" })
+        .expect(201);
+
+      expect(res.body.provider_name).toBe("Proveedor Alpha");
+      expect(res.body.amount).toBe("500.00");
+      expect(res.body.payment_method).toBeNull();
+      expect(res.body.id).toBeDefined();
+      purchaseId = res.body.id;
+    });
+
+    it("POST /reports/provider-purchases creates with optional payment method", async () => {
+      const res = await request(app.getHttpServer())
+        .post("/api/v1/reports/provider-purchases")
+        .set("Authorization", `Bearer ${token}`)
+        .send({ provider_name: "Proveedor Beta", amount: "300.00", payment_method: "transfer" })
+        .expect(201);
+
+      expect(res.body.payment_method).toBe("transfer");
+    });
+
+    it("GET /reports/provider-purchases lists all purchases", async () => {
+      const res = await request(app.getHttpServer())
+        .get("/api/v1/reports/provider-purchases")
+        .set("Authorization", `Bearer ${token}`)
+        .expect(200);
+
+      expect(Array.isArray(res.body)).toBe(true);
+      expect(res.body.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it("PUT /reports/provider-purchases/:id updates a purchase", async () => {
+      const res = await request(app.getHttpServer())
+        .put(`/api/v1/reports/provider-purchases/${purchaseId}`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({ provider_name: "Proveedor Alpha Updated", amount: "750.00" })
+        .expect(200);
+
+      expect(res.body.provider_name).toBe("Proveedor Alpha Updated");
+      expect(res.body.amount).toBe("750.00");
+    });
+
+    it("PUT /reports/provider-purchases/:id returns 404 for non-existent id", async () => {
+      await request(app.getHttpServer())
+        .put("/api/v1/reports/provider-purchases/00000000-0000-0000-0000-000000000000")
+        .set("Authorization", `Bearer ${token}`)
+        .send({ amount: "100.00" })
+        .expect(404);
+    });
+
+    it("DELETE /reports/provider-purchases/:id returns 204 for existing record", async () => {
+      await request(app.getHttpServer())
+        .delete(`/api/v1/reports/provider-purchases/${purchaseId}`)
+        .set("Authorization", `Bearer ${token}`)
+        .expect(204);
+    });
+
+    it("DELETE /reports/provider-purchases/:id returns 404 for non-existent id", async () => {
+      await request(app.getHttpServer())
+        .delete(`/api/v1/reports/provider-purchases/${purchaseId}`)
+        .set("Authorization", `Bearer ${token}`)
+        .expect(404);
+    });
+
+    // ── Provider Purchase Report ──────────────────────────────
+
+    it("GET /reports/provider-purchases/report rejects without token", () => {
+      return request(app.getHttpServer())
+        .get("/api/v1/reports/provider-purchases/report?window=day")
+        .expect(401);
+    });
+
+    it("GET /reports/provider-purchases/report rejects invalid window", async () => {
+      await request(app.getHttpServer())
+        .get("/api/v1/reports/provider-purchases/report?window=year")
+        .set("Authorization", `Bearer ${token}`)
+        .expect(400);
+    });
+
+    it("GET /reports/provider-purchases/report returns day report structure", async () => {
+      const res = await request(app.getHttpServer())
+        .get("/api/v1/reports/provider-purchases/report?window=day")
+        .set("Authorization", `Bearer ${token}`)
+        .expect(200);
+
+      expect(res.body.window).toBe("day");
+      expect(res.body.range).toEqual(
+        expect.objectContaining({
+          startsAt: expect.stringContaining("T00:00:00"),
+          endsAt: expect.stringContaining("T23:59:59"),
+        }),
+      );
+      expect(res.body.totalAmount).toBeDefined();
+      expect(typeof res.body.purchaseCount).toBe("number");
+      expect(Array.isArray(res.body.paymentMethodBreakdown)).toBe(true);
+    });
+
+    it("GET /reports/provider-purchases/report reflects purchases when seeded", async () => {
+      // Create several purchases so the report has data
+      await request(app.getHttpServer())
+        .post("/api/v1/reports/provider-purchases")
+        .set("Authorization", `Bearer ${token}`)
+        .send({ provider_name: "Report Prov", amount: "200.00", payment_method: "cash" })
+        .expect(201);
+
+      await request(app.getHttpServer())
+        .post("/api/v1/reports/provider-purchases")
+        .set("Authorization", `Bearer ${token}`)
+        .send({ provider_name: "Report Prov", amount: "150.00", payment_method: "transfer" })
+        .expect(201);
+
+      const res = await request(app.getHttpServer())
+        .get("/api/v1/reports/provider-purchases/report?window=day")
+        .set("Authorization", `Bearer ${token}`)
+        .expect(200);
+
+      expect(Number(res.body.totalAmount)).toBeGreaterThan(0);
+      expect(res.body.purchaseCount).toBeGreaterThanOrEqual(2);
+    });
+  });
 });

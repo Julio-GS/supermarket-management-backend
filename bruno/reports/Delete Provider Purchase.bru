@@ -1,0 +1,25 @@
+meta {
+  name: Delete Provider Purchase
+  type: http
+  seq: 10
+}
+
+delete {
+  url: {{baseUrl}}/reports/provider-purchases/{{providerPurchaseId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+vars:pre-request {
+  baseUrl: http://localhost:3000/api/v1
+}
+
+tests {
+  test("status is 204", function() {
+    expect(res.getStatus()).to.equal(204);
+  });
+}

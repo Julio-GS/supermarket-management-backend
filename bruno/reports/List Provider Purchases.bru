@@ -1,0 +1,55 @@
+meta {
+  name: List Provider Purchases
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/reports/provider-purchases
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+vars:pre-request {
+  baseUrl: http://localhost:3001/api/v1
+}
+
+tests {
+  test("status is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+  
+  test("returns an array", function() {
+    expect(res.body).to.be.an("array");
+  });
+  
+  test("created provider purchase is present", function() {
+    const created = res.body.find((purchase) => purchase.id === bru.getVar("providerPurchaseId"));
+    expect(created).to.exist;
+    expect(created.provider_name).to.equal(bru.getVar("providerPurchaseName"));
+    expect(created.amount).to.be.a("string");
+  });
+  
+  test("items include the expected fields", function() {
+    expect(res.body).to.have.lengthOf.at.least(1);
+    const purchase = res.body[0];
+    expect(purchase).to.have.property("id");
+    expect(purchase).to.have.property("provider_name");
+    expect(purchase).to.have.property("amount");
+    expect(purchase).to.have.property("payment_method");
+    expect(purchase).to.have.property("created_at");
+    expect(purchase).to.have.property("updated_at");
+  });
+  
+  test("list is sorted by created_at descending", function() {
+    for (let index = 1; index < res.body.length; index += 1) {
+      const previous = new Date(res.body[index - 1].created_at).getTime();
+      const current = new Date(res.body[index].created_at).getTime();
+      expect(previous).to.be.at.least(current);
+    }
+  });
+}
