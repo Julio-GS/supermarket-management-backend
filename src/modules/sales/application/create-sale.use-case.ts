@@ -22,6 +22,7 @@ import {
 import { Money } from "../../../shared/money/money.helper";
 
 export interface CreateSaleItemInput extends SaleSplitTicketItemInput {
+  line_total?: string;
   split_ticket?: SaleItemSplitTicketInput;
 }
 
@@ -267,67 +268,154 @@ export class CreateSaleUseCase {
       unitPrice: string;
       quantity: number;
     }[] = [];
+    const manualItemIndices: number[] = [];
 
-    for (const item of input.items) {
+    for (let i = 0; i < input.items.length; i++) {
+      const item = input.items[i];
       const product = productsById.get(item.product_id);
       if (!product) {
         throw new NotFoundError(`Product ${item.product_id} not found`);
       }
 
-      if (invoiceRequested && !product.facturable) {
-        throw new ValidationError(
-          `Product ${product.detalle} (${product.id}) is not facturable and cannot be invoiced`,
-        );
+      const isManual = product.pricing_mode === "manual";
+
+      if (isManual) {
+        // Manual product: requires line_total, quantity must be 1
+        if (item.quantity !== 1) {
+          throw new ValidationError(
+            `Special product ${product.detalle} only allows quantity 1`,
+          );
+        }
+        if (!item.line_total || item.line_total === "") {
+          throw new ValidationError(
+            `Special product ${product.detalle} requires a line_total amount`,
+          );
+        }
+        const lineTotal = Money.parse(item.line_total);
+        if (lineTotal.lte(0)) {
+          throw new ValidationError(
+            `Special product ${product.detalle} requires a positive line_total`,
+          );
+        }
+
+        if (invoiceRequested && !product.facturable) {
+          throw new ValidationError(
+            `Product ${product.detalle} (${product.id}) is not facturable and cannot be invoiced`,
+          );
+        }
+
+        // Manual products skip promotion resolution (null entry)
+        resolutionItems.push({
+          productId: product.id,
+          unitPrice: Money.toString(lineTotal),
+          quantity: 1,
+        });
+        manualItemIndices.push(i);
+
+        loadedItems.push({ product, quantity: 1 });
+      } else {
+        // Fixed product: requires catalog price, rejects line_total override
+        if (item.line_total !== undefined && item.line_total !== null) {
+          throw new ValidationError(
+            `Product ${product.detalle} has a fixed price; line_total is not allowed`,
+          );
+        }
+
+        if (invoiceRequested && !product.facturable) {
+          throw new ValidationError(
+            `Product ${product.detalle} (${product.id}) is not facturable and cannot be invoiced`,
+          );
+        }
+
+        if (product.costo_final === null) {
+          throw new ValidationError(
+            `Product ${product.detalle} has no catalog price defined`,
+          );
+        }
+
+        const unitPrice = Money.parse(product.costo_final);
+        resolutionItems.push({
+          productId: product.id,
+          unitPrice: Money.toString(unitPrice),
+          quantity: item.quantity,
+        });
+
+        loadedItems.push({ product, quantity: item.quantity });
       }
-
-      const unitPrice = Money.parse(product.costo_final);
-      resolutionItems.push({
-        productId: product.id,
-        unitPrice: Money.toString(unitPrice),
-        quantity: item.quantity,
-      });
-
-      loadedItems.push({
-        product: product as Product,
-        quantity: item.quantity,
-      });
     }
 
-    // Resolve promotions for all items (parallel array — index-stable, safe for repeated productId)
-    const resolvedPromotions = await this.promotionResolver.resolveForSaleItems(
-      resolutionItems,
+    // Resolve promotions — skip manual items by passing null for their resolution
+    const fixedResolutionItems = resolutionItems.map((ri, idx) =>
+      manualItemIndices.includes(idx) ? null : ri,
     );
+    const resolvedPromotions =
+      await this.promotionResolver.resolveForSaleItems(
+        fixedResolutionItems.filter((r): r is NonNullable<typeof r> => r !== null),
+      );
 
-    // Second pass: build sale items with discounts applied
-    resolutionItems.forEach((resItem, i) => {
-      const unitPrice = Money.parse(resItem.unitPrice);
-      const grossSubtotal = Money.multiply(unitPrice, resItem.quantity);
-      let discountAmount = Money.zero();
-      let appliedPromotionId: string | null = null;
-      let appliedPromotionType: string | null = null;
-
-      const resolved = resolvedPromotions[i];
-      if (resolved) {
-        discountAmount = Money.parse(resolved.discountAmount);
-        appliedPromotionId = resolved.promotionId;
-        appliedPromotionType = resolved.type;
+    // Build a resolved-promotions map keyed by original index
+    const resolvedByIndex = new Map<
+      number,
+      (typeof resolvedPromotions)[number] | null
+    >();
+    let promoIdx = 0;
+    for (let i = 0; i < resolutionItems.length; i++) {
+      if (manualItemIndices.includes(i)) {
+        resolvedByIndex.set(i, null);
+      } else {
+        resolvedByIndex.set(i, resolvedPromotions[promoIdx++] ?? null);
       }
+    }
 
-      const discountedSubtotal = Money.subtract(grossSubtotal, discountAmount);
+    // Second pass: build sale items
+    for (let i = 0; i < input.items.length; i++) {
+      const isManual = manualItemIndices.includes(i);
+      const resItem = resolutionItems[i];
+      const unitPrice = Money.parse(resItem.unitPrice);
 
-      saleItems.push({
-        product_id: resItem.productId,
-        quantity: resItem.quantity,
-        unit_price: Money.toString(unitPrice),
-        subtotal: Money.toString(discountedSubtotal),
-        discount_amount: Money.toString(discountAmount),
-        applied_promotions: resolved?.applied_promotions ?? [],
-        applied_promotion_id: appliedPromotionId,
-        applied_promotion_type: appliedPromotionType,
-      });
+      if (isManual) {
+        // Manual product: subtotal = line_total, no discount, no promotions
+        const subtotal = Money.toString(unitPrice);
+        saleItems.push({
+          product_id: resItem.productId,
+          quantity: 1,
+          unit_price: Money.toString(unitPrice),
+          subtotal,
+          discount_amount: "0.00",
+          applied_promotions: [],
+          applied_promotion_id: null,
+          applied_promotion_type: null,
+        });
+        total = Money.add(total, unitPrice);
+      } else {
+        const grossSubtotal = Money.multiply(unitPrice, resItem.quantity);
+        let discountAmount = Money.zero();
+        let appliedPromotionId: string | null = null;
+        let appliedPromotionType: string | null = null;
 
-      total = Money.add(total, discountedSubtotal);
-    });
+        const resolved = resolvedByIndex.get(i) ?? null;
+        if (resolved) {
+          discountAmount = Money.parse(resolved.discountAmount);
+          appliedPromotionId = resolved.promotionId;
+          appliedPromotionType = resolved.type;
+        }
+
+        const discountedSubtotal = Money.subtract(grossSubtotal, discountAmount);
+
+        saleItems.push({
+          product_id: resItem.productId,
+          quantity: resItem.quantity,
+          unit_price: Money.toString(unitPrice),
+          subtotal: Money.toString(discountedSubtotal),
+          discount_amount: Money.toString(discountAmount),
+          applied_promotions: resolved?.applied_promotions ?? [],
+          applied_promotion_id: appliedPromotionId,
+          applied_promotion_type: appliedPromotionType,
+        });
+
+        total = Money.add(total, discountedSubtotal);
+      }
+    }
 
     let invoiceResult: {
       cae: string;
@@ -338,12 +426,14 @@ export class CreateSaleUseCase {
     } | null = null;
 
     if (invoiceRequested) {
-      invoiceResult = await this.issueInvoice.issue(
-        loadedItems.map((i) => ({
-          product: i.product,
-          quantity: i.quantity,
-        })),
-      );
+      const invoiceItems = saleItems.map((si) => {
+        const product = productsById.get(si.product_id);
+        return {
+          line_total: si.subtotal,
+          iva_rate: product?.iva ?? "0",
+        };
+      });
+      invoiceResult = await this.issueInvoice.issue(invoiceItems);
     }
 
     return this.sales.create({

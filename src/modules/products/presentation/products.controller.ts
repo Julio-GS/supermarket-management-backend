@@ -26,6 +26,7 @@ import { ListProductsUseCase } from "../application/list-products.use-case";
 import { GetProductUseCase } from "../application/get-product.use-case";
 import { UpdateProductUseCase } from "../application/update-product.use-case";
 import { DeleteProductUseCase } from "../application/delete-product.use-case";
+import { GetProductByCodeUseCase } from "../application/get-product-by-code.use-case";
 import { Product } from "../domain/product.entity";
 import {
   hasPaginationQuery,
@@ -51,6 +52,8 @@ function toProductResponse(
     facturable: product.facturable,
     maneja_stock: product.maneja_stock,
     codigos: product.codigos,
+    pricing_mode: product.pricing_mode,
+    is_protected: product.is_protected,
     promotions: promotions ?? null,
     store_promotions: storePromotions ?? null,
     created_at: product.created_at,
@@ -67,6 +70,7 @@ export class ProductsController {
     private readonly getProduct: GetProductUseCase,
     private readonly updateProduct: UpdateProductUseCase,
     private readonly deleteProduct: DeleteProductUseCase,
+    private readonly getProductByCode: GetProductByCodeUseCase,
     private readonly promotionRepo: PromotionRepositoryPort,
   ) {}
 
@@ -105,6 +109,16 @@ export class ProductsController {
     return products.map((p) =>
       toProductResponse(p, promotionsById.get(p.id), storeList),
     );
+  }
+
+  @Get("code/:code")
+  async getByCode(@Param("code") code: string): Promise<ProductResponseDto> {
+    const product = await this.getProductByCode.execute(code);
+    const { promotionsById, storePromotions } =
+      await this.loadPromotionsMap([product.id], argentinaNow());
+    const storeList =
+      storePromotions.length > 0 ? storePromotions : null;
+    return toProductResponse(product, promotionsById.get(product.id), storeList);
   }
 
   @Get(":id")

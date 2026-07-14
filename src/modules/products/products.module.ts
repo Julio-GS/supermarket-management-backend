@@ -11,6 +11,7 @@ import { ListProductsUseCase } from "./application/list-products.use-case";
 import { GetProductUseCase } from "./application/get-product.use-case";
 import { UpdateProductUseCase } from "./application/update-product.use-case";
 import { DeleteProductUseCase } from "./application/delete-product.use-case";
+import { GetProductByCodeUseCase } from "./application/get-product-by-code.use-case";
 import { ReadCacheModule } from "../../shared/cache/read-cache.module";
 
 @Module({
@@ -30,6 +31,7 @@ import { ReadCacheModule } from "../../shared/cache/read-cache.module";
     GetProductUseCase,
     UpdateProductUseCase,
     DeleteProductUseCase,
+    GetProductByCodeUseCase,
   ],
   exports: [ProductRepositoryPort],
 })

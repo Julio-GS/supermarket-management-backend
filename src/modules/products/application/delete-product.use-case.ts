@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { ProductRepositoryPort } from "./product.repository.port";
-import { NotFoundError } from "../../../shared/errors/domain.error";
+import { NotFoundError, ConflictError } from "../../../shared/errors/domain.error";
 import { ReadCachePort } from "../../../shared/cache/read-cache.port";
 import { PRODUCT_READ_CACHE_POLICY } from "../../../shared/cache/cache-policy";
 
@@ -15,6 +15,11 @@ export class DeleteProductUseCase {
     const existing = await this.products.findById(id);
     if (!existing) {
       throw new NotFoundError("Product not found");
+    }
+    if (existing.is_protected) {
+      throw new ConflictError(
+        "Cannot delete a protected special-code product",
+      );
     }
     await this.products.delete(id);
     await this.cache.deleteByPrefix(PRODUCT_READ_CACHE_POLICY.prefix);

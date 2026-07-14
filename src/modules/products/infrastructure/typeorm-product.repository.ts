@@ -9,6 +9,7 @@ import {
   ProductListOptions,
 } from "../application/product.repository.port";
 import { Product } from "../domain/product.entity";
+import { PricingMode } from "../domain/special-product-codes";
 import { ProductEntity } from "./typeorm-product.entity";
 import { ProductBarcodeEntity } from "./typeorm-product-barcode.entity";
 import { createPage, Page } from "../../../shared/read-model/page";
@@ -97,6 +98,10 @@ export class TypeOrmProductRepository extends ProductRepositoryPort {
     return barcode?.product ? this.toDomain(barcode.product) : null;
   }
 
+  async findByCode(code: string): Promise<Product | null> {
+    return this.findByBarcode(code);
+  }
+
   async update(id: string, input: ProductUpdateInput): Promise<Product | null> {
     const existing = await this.productRepo.findOne({
       where: { id },
@@ -114,6 +119,8 @@ export class TypeOrmProductRepository extends ProductRepositoryPort {
       etiqueta: input.etiqueta,
       facturable: input.facturable,
       maneja_stock: input.maneja_stock,
+      pricing_mode: input.pricing_mode,
+      is_protected: input.is_protected,
     });
 
     if (input.codigos !== undefined) {
@@ -157,6 +164,8 @@ export class TypeOrmProductRepository extends ProductRepositoryPort {
     product.etiqueta = entity.etiqueta;
     product.facturable = entity.facturable;
     product.maneja_stock = entity.maneja_stock;
+    product.pricing_mode = (entity.pricing_mode as PricingMode) ?? "fixed";
+    product.is_protected = entity.is_protected ?? false;
     product.codigos = (entity.barcodes ?? []).map((b) => b.codigo);
     product.created_at = entity.created_at;
     product.updated_at = entity.updated_at;

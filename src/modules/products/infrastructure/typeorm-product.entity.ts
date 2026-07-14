@@ -16,14 +16,14 @@ export class ProductEntity {
   @Column({ type: "varchar", length: 255 })
   detalle!: string;
 
-  @Column({ type: "numeric", precision: 12, scale: 2, name: "costo_neto" })
-  costo_neto!: string;
+  @Column({ type: "numeric", precision: 12, scale: 2, name: "costo_neto", nullable: true })
+  costo_neto!: string | null;
 
-  @Column({ type: "numeric", precision: 12, scale: 2, name: "costo_final" })
-  costo_final!: string;
+  @Column({ type: "numeric", precision: 12, scale: 2, name: "costo_final", nullable: true })
+  costo_final!: string | null;
 
-  @Column({ type: "numeric", precision: 5, scale: 2 })
-  iva!: string;
+  @Column({ type: "numeric", precision: 5, scale: 2, nullable: true })
+  iva!: string | null;
 
   @Column({ type: "varchar", length: 50, name: "cambio_costo" })
   cambio_costo!: string;
@@ -39,6 +39,12 @@ export class ProductEntity {
 
   @Column({ type: "boolean", name: "maneja_stock" })
   maneja_stock!: boolean;
+
+  @Column({ type: "varchar", length: 10, name: "pricing_mode", default: "fixed" })
+  pricing_mode!: string;
+
+  @Column({ type: "boolean", name: "is_protected", default: false })
+  is_protected!: boolean;
 
   @CreateDateColumn({ name: "created_at" })
   created_at!: Date;

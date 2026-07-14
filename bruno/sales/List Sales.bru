@@ -15,7 +15,7 @@ auth:bearer {
 }
 
 vars:pre-request {
-  baseUrl: http://localhost:3000/api/v1
+  baseUrl: http://localhost:3001/api/v1
 }
 
 tests {
@@ -26,10 +26,10 @@ tests {
   test("returns an array", function() {
     expect(res.body).to.be.an("array");
   });
-
+  
   test("includes the created sale with current sale fields", function() {
     const sale = res.body.find((item) => item.id === bru.getVar("saleId"));
-
+  
     expect(sale).to.exist;
     expect(sale.payment_methods).to.deep.equal([{ method: "cash", amount: "7501.50" }]);
     expect(sale.split_ticket_groups).to.equal(null);

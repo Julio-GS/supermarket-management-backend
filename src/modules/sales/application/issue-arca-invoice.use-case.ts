@@ -1,6 +1,5 @@
 import { Injectable } from "@nestjs/common";
 import { Decimal } from "decimal.js";
-import { Product } from "../../products/domain/product.entity";
 import { Money } from "../../../shared/money/money.helper";
 import { ValidationError } from "../../../shared/errors/domain.error";
 import {
@@ -10,8 +9,8 @@ import {
 } from "./arca-invoice.port";
 
 export interface InvoiceableItem {
-  product: Product;
-  quantity: number;
+  line_total: string;
+  iva_rate: string;
 }
 
 const IVA_RATE_TO_ARCA_ID: Record<string, number> = {
@@ -61,20 +60,21 @@ export class IssueArcaInvoiceUseCase {
     >();
 
     for (const item of items) {
-      const { product, quantity } = item;
-      const netUnit = Money.parse(product.costo_neto);
-      const finalUnit = Money.parse(product.costo_final);
-      const ivaUnit = Money.subtract(finalUnit, netUnit);
+      const { line_total, iva_rate } = item;
 
-      const lineNet = Money.multiply(netUnit, quantity);
-      const lineFinal = Money.multiply(finalUnit, quantity);
-      const lineIva = Money.multiply(ivaUnit, quantity);
+      const lineFinal = Money.parse(line_total);
+      const ivaRate = Money.parse(iva_rate);
+
+      // net = total / (1 + rate/100)
+      const divisor = Money.add(new Decimal(1), Money.parse(iva_rate).div(100));
+      const lineNet = lineFinal.div(divisor);
+      const lineIva = lineFinal.sub(lineNet);
 
       total = Money.add(total, lineFinal);
       impNeto = Money.add(impNeto, lineNet);
       impIva = Money.add(impIva, lineIva);
 
-      const ivaId = mapIvaRateToArcaId(product.iva);
+      const ivaId = mapIvaRateToArcaId(iva_rate);
       const existing = bucketMap.get(ivaId);
       if (existing) {
         existing.baseImp = Money.add(existing.baseImp, lineNet);

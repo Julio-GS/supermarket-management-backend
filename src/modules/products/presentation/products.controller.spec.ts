@@ -7,8 +7,10 @@ import { ListProductsUseCase } from "../application/list-products.use-case";
 import { GetProductUseCase } from "../application/get-product.use-case";
 import { UpdateProductUseCase } from "../application/update-product.use-case";
 import { DeleteProductUseCase } from "../application/delete-product.use-case";
+import { GetProductByCodeUseCase } from "../application/get-product-by-code.use-case";
 import { Product } from "../domain/product.entity";
 import { Promotion } from "../../promotions/domain/promotion.entity";
+import { NotFoundError } from "../../../shared/errors/domain.error";
 
 function buildProduct(overrides: Partial<Product> = {}): Product {
   const p = new Product();
@@ -23,6 +25,8 @@ function buildProduct(overrides: Partial<Product> = {}): Product {
   p.facturable = true;
   p.maneja_stock = false;
   p.codigos = ["TEST001"];
+  p.pricing_mode = "fixed";
+  p.is_protected = false;
   p.created_at = new Date("2026-07-01T00:00:00Z");
   p.updated_at = new Date("2026-07-01T00:00:00Z");
   return Object.assign(p, overrides);
@@ -55,12 +59,14 @@ describe("ProductsController", () => {
     Pick<ListProductsUseCase, "execute" | "executePage">
   >;
   let getProduct: jest.Mocked<Pick<GetProductUseCase, "execute">>;
+  let getProductByCode: jest.Mocked<Pick<GetProductByCodeUseCase, "execute">>;
   let updateProduct: jest.Mocked<Pick<UpdateProductUseCase, "execute">>;
 
   beforeEach(async () => {
     promoRepo = { findActiveByProductIds: jest.fn() };
     listProducts = { execute: jest.fn(), executePage: jest.fn() };
     getProduct = { execute: jest.fn() };
+    getProductByCode = { execute: jest.fn() };
     updateProduct = { execute: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -85,6 +91,10 @@ describe("ProductsController", () => {
         {
           provide: DeleteProductUseCase,
           useValue: { execute: jest.fn() },
+        },
+        {
+          provide: GetProductByCodeUseCase,
+          useValue: getProductByCode,
         },
         {
           provide: PromotionRepositoryPort,
@@ -238,6 +248,59 @@ describe("ProductsController", () => {
       const result = (await controller.list({})) as ProductResponseDto[];
 
       expect(result[0].store_promotions).toBeNull();
+    });
+  });
+
+  describe("getByCode", () => {
+    it("resolves a known special code and returns the product", async () => {
+      const product = buildProduct({
+        id: "special-1",
+        detalle: "Fiambre",
+        pricing_mode: "manual",
+        is_protected: true,
+        costo_neto: null,
+        costo_final: null,
+        iva: null,
+        codigos: ["1"],
+      });
+      getProductByCode.execute.mockResolvedValue(product);
+      promoRepo.findActiveByProductIds.mockResolvedValue([]);
+
+      const result = await controller.getByCode("1");
+
+      expect(result.id).toBe("special-1");
+      expect(result.pricing_mode).toBe("manual");
+      expect(result.is_protected).toBe(true);
+      expect(getProductByCode.execute).toHaveBeenCalledWith("1");
+    });
+
+    it("throws NotFoundError when the code is unknown", async () => {
+      getProductByCode.execute.mockRejectedValue(
+        new NotFoundError("Product with code 99 not found"),
+      );
+
+      await expect(controller.getByCode("99")).rejects.toBeInstanceOf(
+        NotFoundError,
+      );
+      expect(getProductByCode.execute).toHaveBeenCalledWith("99");
+    });
+
+    it("resolves before /:id route for code '1' (route-order verification)", async () => {
+      // This test documents that the /products/code/:code route is declared
+      // before /products/:id in the controller. The mock setup mimics code "1"
+      // which could be mistaken for a UUID if route order were wrong.
+      const product = buildProduct({
+        id: "special-1",
+        pricing_mode: "manual",
+        is_protected: true,
+        codigos: ["1"],
+      });
+      getProductByCode.execute.mockResolvedValue(product);
+      promoRepo.findActiveByProductIds.mockResolvedValue([]);
+
+      // Should resolve via code, not try to parse "1" as UUID
+      await controller.getByCode("1");
+      expect(getProductByCode.execute).toHaveBeenCalledWith("1");
     });
   });
 

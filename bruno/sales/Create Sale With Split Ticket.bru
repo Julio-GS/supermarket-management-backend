@@ -21,9 +21,14 @@ auth:bearer {
 body:json {
   {
     "items": [
+     {
+        "product_id": "f696b4bf-220a-599c-a745-34cf35120143",
+        "quantity": 1,
+        "line_total": "5500.00"
+      },
       {
         "product_id": "{{productId}}",
-        "quantity": 2
+        "quantity": 1
       }
     ],
     "payment_methods": [
@@ -35,7 +40,7 @@ body:json {
         "label": "A",
         "items": [
           {
-            "product_id": "{{productId}}",
+            "product_id": "f696b4bf-220a-599c-a745-34cf35120143",
             "quantity": 1
           }
         ]
@@ -54,8 +59,8 @@ body:json {
 }
 
 vars:pre-request {
-  baseUrl: http://localhost:3000/api/v1
-  productId: 00fe6a18-ef9b-46c4-a7be-8df87d9255e9
+  baseUrl: http://localhost:3001/api/v1
+  productId: b8be07f7-5815-4791-8fb7-b1b3f1b5ddf3
 }
 
 script:post-response {

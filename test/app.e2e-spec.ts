@@ -1,6 +1,7 @@
 import { Test, TestingModule } from "@nestjs/testing";
 import { INestApplication, ValidationPipe } from "@nestjs/common";
 import request from "supertest";
+import { DataSource } from "typeorm";
 import { TestAppModule } from "./test-app.module";
 import { HttpExceptionFilter } from "../src/shared/errors/http.exception-filter";
 import { ArcaInvoicePort } from "../src/modules/sales/application/arca-invoice.port";
@@ -29,6 +30,35 @@ describe("AppController (e2e)", () => {
     );
     app.useGlobalFilters(new HttpExceptionFilter());
     await app.init();
+
+    // Seed special-product codes 1-9 (migration equivalent for E2E tests)
+    const dataSource = app.get(DataSource);
+    await dataSource.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
+    const seedProducts: { code: string; detalle: string }[] = [
+      { code: "1", detalle: "Fiambre" },
+      { code: "2", detalle: "Pan" },
+      { code: "3", detalle: "Kiosco" },
+      { code: "4", detalle: "Perfumeria" },
+      { code: "5", detalle: "Carne" },
+      { code: "6", detalle: "Verdura" },
+      { code: "7", detalle: "Huevos" },
+      { code: "8", detalle: "Limpieza" },
+      { code: "9", detalle: "Bolsas" },
+    ];
+    for (const { code, detalle } of seedProducts) {
+      await dataSource.query(
+        `INSERT INTO products (id, detalle, costo_neto, costo_final, iva, cambio_costo, cambio_precio, etiqueta, facturable, maneja_stock, pricing_mode, is_protected, created_at, updated_at)
+         VALUES (uuid_generate_v5(uuid_nil(), $1), $2, NULL, NULL, NULL, '', '', '', false, false, 'manual', true, now(), now())
+         ON CONFLICT DO NOTHING`,
+        [`special-product-${code}`, detalle],
+      );
+      await dataSource.query(
+        `INSERT INTO product_barcodes (codigo, product_id)
+         SELECT $1, id FROM products WHERE detalle = $2 AND pricing_mode = 'manual'
+         ON CONFLICT DO NOTHING`,
+        [code, detalle],
+      );
+    }
   });
 
   beforeEach(() => {
@@ -943,5 +973,256 @@ describe("AppController (e2e)", () => {
         expect(sp.id).not.toBe(productPromo.body.id);
       }
     }
+  });
+
+  describe("Special Product Codes", () => {
+    it("GET /products/code/:code returns 404 for unknown code", async () => {
+      await request(app.getHttpServer())
+        .get("/api/v1/products/code/999")
+        .set("Authorization", `Bearer ${token}`)
+        .expect(404);
+    });
+
+    it("GET /products/code/:code with empty code returns 404", async () => {
+      await request(app.getHttpServer())
+        .get("/api/v1/products/code/%20")
+        .set("Authorization", `Bearer ${token}`)
+        .expect(404);
+    });
+
+    it("POST /products rejects creation with reserved code 1", async () => {
+      await request(app.getHttpServer())
+        .post("/api/v1/products")
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          detalle: "Should Fail",
+          costo_neto: "100.00",
+          costo_final: "200.00",
+          iva: "21.00",
+          cambio_costo: "2024-01-01",
+          cambio_precio: "2024-01-01",
+          etiqueta: "test",
+          facturable: true,
+          maneja_stock: false,
+          codigos: ["1"],
+        })
+        .expect(400);
+    });
+
+    it("POST /products rejects creation with reserved codes in list", async () => {
+      await request(app.getHttpServer())
+        .post("/api/v1/products")
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          detalle: "Should Fail Too",
+          costo_neto: "100.00",
+          costo_final: "200.00",
+          iva: "21.00",
+          cambio_costo: "2024-01-01",
+          cambio_precio: "2024-01-01",
+          etiqueta: "test",
+          facturable: true,
+          maneja_stock: false,
+          codigos: ["ABC123", "9", "XYZ"],
+        })
+        .expect(400);
+    });
+
+    it("POST /sales rejects line_total for a fixed-price product", async () => {
+      const product = await request(app.getHttpServer())
+        .post("/api/v1/products")
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          detalle: "Fixed Product",
+          costo_neto: "100.00",
+          costo_final: "200.00",
+          iva: "21.00",
+          cambio_costo: "2024-01-01",
+          cambio_precio: "2024-01-01",
+          etiqueta: "test",
+          facturable: true,
+          maneja_stock: false,
+          codigos: ["FIXED-001"],
+        })
+        .expect(201);
+
+      await request(app.getHttpServer())
+        .post("/api/v1/sales")
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          items: [
+            {
+              product_id: product.body.id,
+              quantity: 1,
+              line_total: "500.00",
+            },
+          ],
+          payment_methods: [{ method: "cash", amount: "500.00" }],
+        })
+        .expect(400);
+    });
+
+    it("products response includes pricing_mode and is_protected fields", async () => {
+      const product = await request(app.getHttpServer())
+        .post("/api/v1/products")
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          detalle: "Pricing Fields Product",
+          costo_neto: "50.00",
+          costo_final: "100.00",
+          iva: "21.00",
+          cambio_costo: "2024-01-01",
+          cambio_precio: "2024-01-01",
+          etiqueta: "pricing",
+          facturable: true,
+          maneja_stock: false,
+          codigos: ["PFIELD-001"],
+        })
+        .expect(201);
+
+      expect(product.body.pricing_mode).toBe("fixed");
+      expect(product.body.is_protected).toBe(false);
+
+      // Verify the field also appears in GET responses
+      const fetched = await request(app.getHttpServer())
+        .get(`/api/v1/products/${product.body.id}`)
+        .set("Authorization", `Bearer ${token}`)
+        .expect(200);
+
+      expect(fetched.body.pricing_mode).toBe("fixed");
+      expect(fetched.body.is_protected).toBe(false);
+    });
+
+    it("GET /products/code/:code resolves a seeded special product", async () => {
+      // Seed must already exist from migration; resolve code "1" → Fiambre
+      const res = await request(app.getHttpServer())
+        .get("/api/v1/products/code/1")
+        .set("Authorization", `Bearer ${token}`)
+        .expect(200);
+
+      expect(res.body.detalle).toBe("Fiambre");
+      expect(res.body.pricing_mode).toBe("manual");
+      expect(res.body.is_protected).toBe(true);
+      expect(res.body.codigos).toContain("1");
+    });
+
+    it("POST /sales accepts a manual special-product sale with valid line_total", async () => {
+      // Resolve code "1" (Fiambre) to get the product ID
+      const codeRes = await request(app.getHttpServer())
+        .get("/api/v1/products/code/1")
+        .set("Authorization", `Bearer ${token}`)
+        .expect(200);
+
+      const saleRes = await request(app.getHttpServer())
+        .post("/api/v1/sales")
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          items: [
+            {
+              product_id: codeRes.body.id,
+              quantity: 1,
+              line_total: "450.00",
+            },
+          ],
+          payment_methods: [{ method: "cash", amount: "450.00" }],
+        })
+        .expect(201);
+
+      expect(saleRes.body.total).toBe("450.00");
+      expect(saleRes.body.items).toHaveLength(1);
+      expect(saleRes.body.items[0].quantity).toBe(1);
+      expect(saleRes.body.items[0].unit_price).toBe("450.00");
+      expect(saleRes.body.items[0].subtotal).toBe("450.00");
+    });
+
+    it("POST /sales rejects a manual special-product sale without line_total", async () => {
+      const codeRes = await request(app.getHttpServer())
+        .get("/api/v1/products/code/2")
+        .set("Authorization", `Bearer ${token}`)
+        .expect(200);
+
+      await request(app.getHttpServer())
+        .post("/api/v1/sales")
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          items: [
+            {
+              product_id: codeRes.body.id,
+              quantity: 1,
+            },
+          ],
+          payment_methods: [{ method: "cash", amount: "500.00" }],
+        })
+        .expect(400);
+    });
+
+    it("POST /sales rejects a manual special-product sale with zero line_total", async () => {
+      const codeRes = await request(app.getHttpServer())
+        .get("/api/v1/products/code/3")
+        .set("Authorization", `Bearer ${token}`)
+        .expect(200);
+
+      await request(app.getHttpServer())
+        .post("/api/v1/sales")
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          items: [
+            {
+              product_id: codeRes.body.id,
+              quantity: 1,
+              line_total: "0.00",
+            },
+          ],
+          payment_methods: [{ method: "cash", amount: "0.00" }],
+        })
+        .expect(400);
+    });
+
+    it("POST /sales rejects a manual special-product sale with quantity != 1", async () => {
+      const codeRes = await request(app.getHttpServer())
+        .get("/api/v1/products/code/4")
+        .set("Authorization", `Bearer ${token}`)
+        .expect(200);
+
+      await request(app.getHttpServer())
+        .post("/api/v1/sales")
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          items: [
+            {
+              product_id: codeRes.body.id,
+              quantity: 3,
+              line_total: "300.00",
+            },
+          ],
+          payment_methods: [{ method: "cash", amount: "300.00" }],
+        })
+        .expect(400);
+    });
+
+    it("PUT /products/:id rejects codigos change for a protected product", async () => {
+      const codeRes = await request(app.getHttpServer())
+        .get("/api/v1/products/code/5")
+        .set("Authorization", `Bearer ${token}`)
+        .expect(200);
+
+      await request(app.getHttpServer())
+        .put(`/api/v1/products/${codeRes.body.id}`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({ codigos: ["REASSIGNED"] })
+        .expect(400);
+    });
+
+    it("DELETE /products/:id rejects deletion of a protected product", async () => {
+      const codeRes = await request(app.getHttpServer())
+        .get("/api/v1/products/code/6")
+        .set("Authorization", `Bearer ${token}`)
+        .expect(200);
+
+      await request(app.getHttpServer())
+        .delete(`/api/v1/products/${codeRes.body.id}`)
+        .set("Authorization", `Bearer ${token}`)
+        .expect(409);
+    });
   });
 });

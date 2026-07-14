@@ -16,6 +16,7 @@ describe("ListProductsUseCase", () => {
       findById: jest.fn(),
       findByIdsForSale: jest.fn(),
       findByBarcode: jest.fn(),
+      findByCode: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
       existsAnyBarcode: jest.fn(),

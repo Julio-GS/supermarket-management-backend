@@ -23,18 +23,19 @@ body:json {
     "items": [
       {
         "product_id": "{{productId}}",
-        "quantity": 2
+        "quantity": 1
       }
     ],
     "payment_methods": [
-      { "method": "card", "amount": "5800" }
-    ]
+      { "method": "cash", "amount": "5800" }
+    ],
+    "invoice_requested": false
   }
 }
 
 vars:pre-request {
-  baseUrl: http://localhost:3000/api/v1
-  productId: 00fe6a18-ef9b-46c4-a7be-8df87d9255e9
+  baseUrl: http://localhost:3001/api/v1
+  productId: f696b4bf-220a-599c-a745-34cf35120143
 }
 
 script:post-response {

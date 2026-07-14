@@ -28,14 +28,17 @@ export class CreateProductDto {
   @MinLength(1)
   detalle!: string;
 
+  @IsOptional()
   @Validate(MoneyStringConstraint)
-  costo_neto!: string;
+  costo_neto?: string | null;
 
+  @IsOptional()
   @Validate(MoneyStringConstraint)
-  costo_final!: string;
+  costo_final?: string | null;
 
+  @IsOptional()
   @Validate(MoneyStringConstraint)
-  iva!: string;
+  iva?: string | null;
 
   @IsString()
   cambio_costo!: string;
@@ -115,15 +118,17 @@ export class ProductPromotionSummaryDto {
 export class ProductResponseDto {
   id!: string;
   detalle!: string;
-  costo_neto!: string;
-  costo_final!: string;
-  iva!: string;
+  costo_neto!: string | null;
+  costo_final!: string | null;
+  iva!: string | null;
   cambio_costo!: string;
   cambio_precio!: string;
   etiqueta!: string;
   facturable!: boolean;
   maneja_stock!: boolean;
   codigos!: string[];
+  pricing_mode!: string;
+  is_protected!: boolean;
   promotions?: ProductPromotionSummaryDto[] | null;
   store_promotions?: ProductPromotionSummaryDto[] | null;
   created_at!: Date;

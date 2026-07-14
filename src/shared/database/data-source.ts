@@ -8,6 +8,7 @@ import { AddReportReadIndexes1792000000000 } from "./migrations/1792000000000-Ad
 import { AddAmountToSalePaymentMethods1793000000000 } from "./migrations/1793000000000-AddAmountToSalePaymentMethods";
 import { AddPromotionsAndSaleDiscounts1800000000000 } from "./migrations/1800000000000-AddPromotionsAndSaleDiscounts";
 import { AddMissingPromotionColumns1801000000000 } from "./migrations/1801000000000-AddMissingPromotionColumns";
+import { AddSpecialProductCodes1802000000000 } from "./migrations/1802000000000-AddSpecialProductCodes";
 
 export default new DataSource({
   type: "postgres",
@@ -25,6 +26,7 @@ export default new DataSource({
     AddAmountToSalePaymentMethods1793000000000,
     AddPromotionsAndSaleDiscounts1800000000000,
     AddMissingPromotionColumns1801000000000,
+    AddSpecialProductCodes1802000000000,
   ],
   migrationsRun: false,
   synchronize: false,

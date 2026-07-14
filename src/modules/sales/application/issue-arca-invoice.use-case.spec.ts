@@ -2,26 +2,6 @@ import { Test, TestingModule } from "@nestjs/testing";
 import { IssueArcaInvoiceUseCase } from "./issue-arca-invoice.use-case";
 import { ArcaInvoicePort } from "./arca-invoice.port";
 import { ValidationError } from "../../../shared/errors/domain.error";
-import { Product } from "../../products/domain/product.entity";
-
-function buildProduct(overrides: Partial<Product> = {}): Product {
-  return {
-    id: "product-id",
-    detalle: "Test Product",
-    costo_neto: "100.00",
-    costo_final: "121.00",
-    iva: "21.00",
-    cambio_costo: "2024-01-01",
-    cambio_precio: "2024-01-01",
-    etiqueta: "test",
-    facturable: true,
-    maneja_stock: false,
-    codigos: ["123456"],
-    created_at: new Date(),
-    updated_at: new Date(),
-    ...overrides,
-  };
-}
 
 describe("IssueArcaInvoiceUseCase", () => {
   let useCase: IssueArcaInvoiceUseCase;
@@ -42,8 +22,7 @@ describe("IssueArcaInvoiceUseCase", () => {
     useCase = module.get(IssueArcaInvoiceUseCase);
   });
 
-  it("computes IVA buckets from costo_neto and costo_final", async () => {
-    const product = buildProduct();
+  it("computes IVA buckets from line_total and iva_rate", async () => {
     arcaInvoice.createFacturaBConsumidorFinal.mockResolvedValue({
       cae: "12345678901234",
       cae_vto: "20240111",
@@ -52,7 +31,9 @@ describe("IssueArcaInvoiceUseCase", () => {
       pto_vta: 1,
     });
 
-    const result = await useCase.issue([{ product, quantity: 1 }]);
+    const result = await useCase.issue([
+      { line_total: "121.00", iva_rate: "21.00" },
+    ]);
 
     expect(arcaInvoice.createFacturaBConsumidorFinal).toHaveBeenCalledWith({
       total: "121.00",
@@ -64,18 +45,6 @@ describe("IssueArcaInvoiceUseCase", () => {
   });
 
   it("groups multiple items by IVA rate", async () => {
-    const product21 = buildProduct({
-      id: "p21",
-      costo_neto: "100.00",
-      costo_final: "121.00",
-      iva: "21.00",
-    });
-    const product105 = buildProduct({
-      id: "p105",
-      costo_neto: "100.00",
-      costo_final: "110.50",
-      iva: "10.50",
-    });
     arcaInvoice.createFacturaBConsumidorFinal.mockResolvedValue({
       cae: "12345678901234",
       cae_vto: "20240111",
@@ -85,8 +54,8 @@ describe("IssueArcaInvoiceUseCase", () => {
     });
 
     await useCase.issue([
-      { product: product21, quantity: 2 },
-      { product: product105, quantity: 1 },
+      { line_total: "242.00", iva_rate: "21.00" },
+      { line_total: "110.50", iva_rate: "10.50" },
     ]);
 
     const call = arcaInvoice.createFacturaBConsumidorFinal.mock.calls[0][0];
@@ -102,10 +71,8 @@ describe("IssueArcaInvoiceUseCase", () => {
   });
 
   it("rejects unsupported IVA rates", async () => {
-    const product = buildProduct({ iva: "99.00" });
-
     await expect(
-      useCase.issue([{ product, quantity: 1 }]),
+      useCase.issue([{ line_total: "100.00", iva_rate: "99.00" }]),
     ).rejects.toBeInstanceOf(ValidationError);
     expect(arcaInvoice.createFacturaBConsumidorFinal).not.toHaveBeenCalled();
   });

@@ -24,6 +24,8 @@ function buildProduct(overrides: Partial<Product> = {}): Product {
     facturable: true,
     maneja_stock: false,
     codigos: ["123456"],
+    pricing_mode: "fixed",
+    is_protected: false,
     created_at: new Date(),
     updated_at: new Date(),
     ...overrides,
@@ -77,6 +79,7 @@ describe("CreateSaleUseCase", () => {
       findAll: jest.fn(),
       findPage: jest.fn(),
       findByBarcode: jest.fn(),
+      findByCode: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
       existsAnyBarcode: jest.fn(),
@@ -169,7 +172,9 @@ describe("CreateSaleUseCase", () => {
       payment_methods: [{ method: "cash", amount: "121.00" }],
     });
 
-    expect(issueInvoice.issue).toHaveBeenCalledWith([{ product, quantity: 1 }]);
+    expect(issueInvoice.issue).toHaveBeenCalledWith([
+      { line_total: "121.00", iva_rate: "21.00" },
+    ]);
     expect(result.invoice_status).toBe("issued");
     expect(sales.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -572,6 +577,252 @@ describe("CreateSaleUseCase", () => {
     expect(sales.create).toHaveBeenCalledWith(
       expect.objectContaining({ total: "242.00" }),
     );
+  });
+
+  describe("manual (special-code) products", () => {
+    it("accepts a manual product with line_total and quantity 1", async () => {
+      const manualProduct = buildProduct({
+        pricing_mode: "manual",
+        is_protected: true,
+        facturable: false,
+        costo_final: null,
+        iva: null,
+        codigos: ["1"],
+      });
+      products.findByIdsForSale.mockResolvedValue([manualProduct]);
+      sales.create.mockResolvedValue(
+        buildSale({
+          total: "350.00",
+          items: [
+            {
+              id: "item-manual",
+              sale_id: "sale-id",
+              product_id: manualProduct.id,
+              quantity: 1,
+              unit_price: "350.00",
+              subtotal: "350.00",
+              discount_amount: "0.00",
+              applied_promotions: [],
+            },
+          ],
+        }),
+      );
+
+      const result = await useCase.execute({
+        user_id: "user-id",
+        items: [
+          {
+            product_id: manualProduct.id,
+            quantity: 1,
+            line_total: "350.00",
+          },
+        ],
+        payment_methods: [{ method: "cash", amount: "350.00" }],
+      });
+
+      expect(result.total).toBe("350.00");
+      expect(result.items[0].quantity).toBe(1);
+      expect(result.items[0].unit_price).toBe("350.00");
+      expect(result.items[0].subtotal).toBe("350.00");
+      expect(result.items[0].discount_amount).toBe("0.00");
+      expect(result.items[0].applied_promotions).toEqual([]);
+      // Manual items must skip promotion resolution
+      expect(promotionResolver.resolveForSaleItems).toHaveBeenCalledWith([]);
+    });
+
+    it("rejects manual product when line_total is missing", async () => {
+      const manualProduct = buildProduct({
+        pricing_mode: "manual",
+        is_protected: true,
+        facturable: false,
+        costo_final: null,
+      });
+      products.findByIdsForSale.mockResolvedValue([manualProduct]);
+
+      await expect(
+        useCase.execute({
+          user_id: "user-id",
+          items: [{ product_id: manualProduct.id, quantity: 1 }],
+          payment_methods: [{ method: "cash", amount: "100.00" }],
+        }),
+      ).rejects.toBeInstanceOf(ValidationError);
+
+      expect(sales.create).not.toHaveBeenCalled();
+    });
+
+    it("rejects manual product when line_total is zero or negative", async () => {
+      const manualProduct = buildProduct({
+        pricing_mode: "manual",
+        is_protected: true,
+        facturable: false,
+        costo_final: null,
+      });
+      products.findByIdsForSale.mockResolvedValue([manualProduct]);
+
+      await expect(
+        useCase.execute({
+          user_id: "user-id",
+          items: [
+            {
+              product_id: manualProduct.id,
+              quantity: 1,
+              line_total: "0.00",
+            },
+          ],
+          payment_methods: [{ method: "cash", amount: "0.00" }],
+        }),
+      ).rejects.toBeInstanceOf(ValidationError);
+
+      await expect(
+        useCase.execute({
+          user_id: "user-id",
+          items: [
+            {
+              product_id: manualProduct.id,
+              quantity: 1,
+              line_total: "-50.00",
+            },
+          ],
+          payment_methods: [{ method: "cash", amount: "50.00" }],
+        }),
+      ).rejects.toBeInstanceOf(ValidationError);
+
+      expect(sales.create).not.toHaveBeenCalled();
+    });
+
+    it("rejects manual product when quantity is not 1", async () => {
+      const manualProduct = buildProduct({
+        pricing_mode: "manual",
+        is_protected: true,
+        facturable: false,
+        costo_final: null,
+      });
+      products.findByIdsForSale.mockResolvedValue([manualProduct]);
+
+      await expect(
+        useCase.execute({
+          user_id: "user-id",
+          items: [
+            {
+              product_id: manualProduct.id,
+              quantity: 3,
+              line_total: "500.00",
+            },
+          ],
+          payment_methods: [{ method: "cash", amount: "500.00" }],
+        }),
+      ).rejects.toBeInstanceOf(ValidationError);
+
+      expect(sales.create).not.toHaveBeenCalled();
+    });
+
+    it("rejects fixed product when line_total is provided", async () => {
+      const fixedProduct = buildProduct({ pricing_mode: "fixed" });
+      products.findByIdsForSale.mockResolvedValue([fixedProduct]);
+
+      await expect(
+        useCase.execute({
+          user_id: "user-id",
+          items: [
+            {
+              product_id: fixedProduct.id,
+              quantity: 1,
+              line_total: "500.00",
+            },
+          ],
+          payment_methods: [{ method: "cash", amount: "500.00" }],
+        }),
+      ).rejects.toBeInstanceOf(ValidationError);
+
+      expect(sales.create).not.toHaveBeenCalled();
+    });
+
+    it("rejects invoice for a non-facturable manual product", async () => {
+      const manualProduct = buildProduct({
+        pricing_mode: "manual",
+        is_protected: true,
+        facturable: false,
+        costo_final: null,
+      });
+      products.findByIdsForSale.mockResolvedValue([manualProduct]);
+
+      await expect(
+        useCase.execute({
+          user_id: "user-id",
+          items: [
+            {
+              product_id: manualProduct.id,
+              quantity: 1,
+              line_total: "200.00",
+            },
+          ],
+          invoice_requested: true,
+          payment_methods: [{ method: "cash", amount: "200.00" }],
+        }),
+      ).rejects.toBeInstanceOf(ValidationError);
+
+      expect(issueInvoice.issue).not.toHaveBeenCalled();
+      expect(sales.create).not.toHaveBeenCalled();
+    });
+
+    it("skips promotions for manual line items", async () => {
+      const manualProduct = buildProduct({
+        pricing_mode: "manual",
+        is_protected: true,
+        facturable: false,
+        costo_final: null,
+        codigos: ["1"],
+      });
+      const fixedProduct = buildProduct({
+        id: "fixed-id",
+        pricing_mode: "fixed",
+        codigos: ["FIXED-001"],
+      });
+      products.findByIdsForSale.mockResolvedValue([manualProduct, fixedProduct]);
+      promotionResolver.resolveForSaleItems.mockResolvedValue([null]);
+      sales.create.mockResolvedValue(
+        buildSale({
+          total: "471.00",
+          items: [
+            {
+              id: "item-manual",
+              sale_id: "sale-id",
+              product_id: manualProduct.id,
+              quantity: 1,
+              unit_price: "350.00",
+              subtotal: "350.00",
+              discount_amount: "0.00",
+              applied_promotions: [],
+            },
+            {
+              id: "item-fixed",
+              sale_id: "sale-id",
+              product_id: fixedProduct.id,
+              quantity: 1,
+              unit_price: "121.00",
+              subtotal: "121.00",
+              discount_amount: "0.00",
+              applied_promotions: [],
+            },
+          ],
+        }),
+      );
+
+      const result = await useCase.execute({
+        user_id: "user-id",
+        items: [
+          { product_id: manualProduct.id, quantity: 1, line_total: "350.00" },
+          { product_id: fixedProduct.id, quantity: 1 },
+        ],
+        payment_methods: [{ method: "cash", amount: "471.00" }],
+      });
+
+      expect(result.total).toBe("471.00");
+      // Manual item must be skipped; only fixed items go to promotion resolver
+      expect(promotionResolver.resolveForSaleItems).toHaveBeenCalledWith([
+        { productId: fixedProduct.id, unitPrice: "121.00", quantity: 1 },
+      ]);
+    });
   });
 
   describe("promotion resolution", () => {

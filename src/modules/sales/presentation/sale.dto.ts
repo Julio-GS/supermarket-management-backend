@@ -12,9 +12,26 @@ import {
   IsString,
   IsUUID,
   Min,
+  Validate,
   ValidateNested,
+  ValidatorConstraint,
+  ValidatorConstraintInterface,
+  ValidationArguments,
 } from "class-validator";
 import { PAYMENT_METHODS, PaymentMethod } from "../domain/sale.entity";
+import { validateMoneyString } from "../../../shared/money/money.helper";
+
+@ValidatorConstraint({ name: "moneyStringOrEmpty", async: false })
+class MoneyStringOrEmptyConstraint implements ValidatorConstraintInterface {
+  validate(value: unknown): boolean {
+    if (value === undefined || value === null) return true;
+    return typeof value === "string" && validateMoneyString(value);
+  }
+
+  defaultMessage(args: ValidationArguments): string {
+    return `${args.property} must be a valid money string like "2500.50" or omitted`;
+  }
+}
 
 export class PaymentMethodAllocationDto {
   @IsIn(PAYMENT_METHODS)
@@ -45,6 +62,10 @@ export class SaleItemDto {
   @Min(1)
   @Type(() => Number)
   quantity!: number;
+
+  @IsOptional()
+  @Validate(MoneyStringOrEmptyConstraint)
+  line_total?: string;
 
   @IsOptional()
   @ValidateNested()
