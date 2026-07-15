@@ -12,7 +12,8 @@ It assumes you already have auth, product, and sale flows working. See [`fronten
 4. `DELETE /promotions/:id` soft-disables it (sets `enabled: false`).
 5. Product responses carry `promotions` (product-scoped) and `store_promotions` (store-wide). Show active badges on product cards.
 6. Sale item responses carry `applied_promotions` (stacked) plus legacy `applied_promotion_id` and `applied_promotion_type`. Show discount rows in sale detail.
-7. There is **no** `POST /sales/preview` endpoint — the frontend estimates discounts visually, and the backend is the source of truth at sale time.
+7. Ad-hoc sale items can receive store-wide promotions, but effective product promotions do not apply to them.
+8. There is **no** `POST /sales/preview` endpoint — the frontend estimates discounts visually, and the backend is the source of truth at sale time.
 
 ## Core concepts
 
@@ -22,7 +23,7 @@ Promotions are **automatic** — the frontend does NOT select or apply promotion
 |---------|----------|
 | Automatic | Backend picks promotions for each sale item during `POST /sales`. No frontend action needed. |
 | Stacking | Store-wide promotions + one product promotion **stack** per sale item. Product promotions do NOT stack with each other (only the best one wins). |
-| Product scope | A promotion targets a single `product_id`. At most one product promotion applies per sale item. |
+| Product scope | A promotion targets a single `product_id`. At most one product promotion applies per catalog-backed sale item. |
 | Store scope | A promotion applies to **all** products. Multiple store-wide promotions can apply simultaneously. |
 | No stock effect | Promotions do NOT alter stock; only discounts the sale price. |
 | Invoicing | ARCA invoices use the final `total`. Discount detail is visible in the sale, not embedded in the invoice voucher. |
@@ -60,11 +61,12 @@ Weekdays use ISO numbering: **1 = Monday, 2 = Tuesday, …, 7 = Sunday**. Timezo
 At checkout, for each sale item:
 
 1. Find all `enabled` store-wide promotions whose schedule is currently active. **All of them** apply — each computes its discount independently.
-2. Find all `enabled` product promotions for that `product_id` whose schedule is currently active. From those, **pick the single best one** (largest monetary discount).
+2. For catalog-backed items only, find all `enabled` product promotions for that `product_id` whose schedule is currently active. From those, **pick the single best one** (largest monetary discount).
 3. If the same product promotion type has equal amounts: **percentage beats 2-for-1**. If same type with equal amounts: **newest `updated_at`** wins.
 4. The final `discount_amount` on the sale item is the **sum** of all applied promotions (store-wide + best product).
 5. The `applied_promotions` array lists every promotion that contributed, sorted by discount amount descending.
-6. If no promotion qualifies, the item gets no discount (`discount_amount: "0.00"`, `applied_promotions: []`).
+6. If the item is ad-hoc, keep only the store-scoped entries in `applied_promotions` and ignore effective product-scoped discounting.
+7. If no promotion qualifies, the item gets no discount (`discount_amount: "0.00"`, `applied_promotions: []`).
 
 ## Endpoints
 
@@ -333,6 +335,22 @@ The frontend sends the same `POST /sales` payload as before — no promotion fie
 }
 ```
 
+Ad-hoc items use the same endpoint with a different sale item shape:
+
+```json
+{
+  "items": [
+    {
+      "name": "Counter Service",
+      "description": "Manual cashier entry for checkout testing",
+      "unit_price": "199.99",
+      "quantity": 2
+    }
+  ],
+  "payment_methods": [{ "method": "cash", "amount": "399.98" }]
+}
+```
+
 ### What the frontend must NOT send
 
 The frontend must **not** send any backend-owned pricing fields in the sale payload.
@@ -342,6 +360,7 @@ The frontend must **not** send any backend-owned pricing fields in the sale payl
 - Do **not** send `applied_promotions`.
 - Do **not** send `applied_promotion_id` or `applied_promotion_type`.
 - Do **not** send any "discount already applied" value as the source of truth.
+- Do **not** send a frontend-generated synthetic `product_id` for ad-hoc items.
 
 The frontend may estimate discounts locally for UX, but the backend is always the source of truth for the persisted sale total.
 
@@ -351,7 +370,8 @@ Before submitting the sale, the frontend should validate:
 
 1. **Items**
    - at least one item exists
-   - every item has a valid `product_id`
+   - every catalog item has a valid `product_id`
+   - every ad-hoc item has `name` and `unit_price`
    - every item has `quantity >= 1`
 
 2. **Payment methods**
@@ -410,6 +430,13 @@ The backend:
 3. Subtracts it from the item subtotal.
 4. The `total` in the response is the **after-discount final total**.
 5. Each sale item carries `discount_amount`, `applied_promotions` (stacked), plus legacy `applied_promotion_id` and `applied_promotion_type`.
+
+### Ad-hoc items and promotions
+
+- Ad-hoc items are included in sale-time promotion resolution so store-wide promotions can affect them.
+- Effective product-scoped promotions are excluded from the ad-hoc item `applied_promotions` response.
+- The backend stores a synthetic `product_id` for ad-hoc items. Treat it as opaque. It is not a real catalog product id and must not drive promotion lookups or product-detail navigation.
+- For ad-hoc item discount UI, use `discount_amount` plus `applied_promotions` as the source of truth. The legacy `applied_promotion_id` / `applied_promotion_type` fields are not reliable for new ad-hoc-specific behavior.
 
 ### Sale item response with promotions
 
@@ -601,7 +628,10 @@ interface AppliedPromotion {
 
 interface SaleItemResponse {
   id: string;
-  product_id: string;
+  product_id: string | null;
+  name?: string | null;
+  description?: string | null;
+  iva?: string | null;
   quantity: number;
   unit_price: string;
   subtotal: string;
@@ -794,6 +824,7 @@ async function enablePromotion(id: string): Promise<PromotionResponse> {
 
 - **Toggle from list**: If you show an `enabled` toggle in the promotions list, use `PUT /promotions/:id { "enabled": false }` — not `DELETE`. `DELETE` is a no-recovery path from the list perspective (you'd need a separate "Re-enable" action that calls PUT).
 - **Product deleted after promotion created**: The promotion stays in the DB but will never match a sale item (product lookup fails). The admin list screen should handle products that no longer exist gracefully — the `promotions` response only has `product_id`, no product name. You'll need to join via `GET /products/:id` or maintain a product name cache.
+- **Ad-hoc sale item IDs**: Ad-hoc item `product_id` values in sale responses are synthetic. Never treat them as product records or use them in catalog routes.
 - **GET /promotions includes disabled ones**: Your admin list screen should visually distinguish enabled vs disabled (e.g., grayed out row, disabled badge). The list endpoint returns everything.
 - **No delete confirmation on backend**: `DELETE` is a soft-disable, not a destructive operation. The confirmation dialog message should reflect this: "Deactivate" rather than "Delete permanently".
 - **`store_promotions` is the same for every product**: In a list response, every product object contains the identical `store_promotions` array. You can read it from the first product and reuse it. Don't re-render store promotion badges per card unnecessarily.
@@ -810,6 +841,7 @@ async function enablePromotion(id: string): Promise<PromotionResponse> {
 - [ ] Product list cards show store-wide promotion indicator when `store_promotions.length > 0`.
 - [ ] Checkout shows estimated discount per item (from `promotions` + `store_promotions`), marked as "Estimado".
 - [ ] Checkout does NOT send promotion data — discount is automatic.
+- [ ] Checkout treats ad-hoc items as eligible only for store-wide discount estimation, never product-scoped estimation.
 - [ ] Sale detail shows `applied_promotions` breakdown (scope + type + amount) for each item with `discount_amount !== "0.00"`.
 - [ ] Sale detail falls back to legacy `applied_promotion_id` / `applied_promotion_type` for product-only display if needed.
 - [ ] Sale receipt uses `total` (already discounted) for the final amount.

@@ -9,7 +9,7 @@ This guide maps the NestJS backend to the frontend contracts you need to call it
 3. `POST /products` to create products with at least one barcode.
 4. `GET /products?search=leche&page=1&limit=20&sort=detalle:asc` for searchable paginated product reads, or `GET /products` for the legacy array response.
 5. `GET /sales?page=1&limit=20&sort=created_at:desc` for paginated sale history, or `GET /sales` for the legacy array response.
-6. `POST /sales` with `{ items, payment_methods, split_ticket_groups?, invoice_requested? }` to create a sale; the backend computes `total` and normalizes the response.
+6. `POST /sales` with `{ items, payment_methods, split_ticket_groups?, invoice_requested? }` to create a sale; each item can be catalog-backed (`product_id`) or ad-hoc (`name + unit_price + quantity`), and the backend computes `total` and normalizes the response. See [`ad-hoc-sale-items-frontend-integration.md`](./ad-hoc-sale-items-frontend-integration.md) for the dedicated non-catalog item guide.
 7. Use `split_ticket_groups` only when the cashier needs a split-ticket checkout. It stays one sale, one payment set, and one invoice flow.
 8. Set `invoice_requested: true` only when the cashier asks for electronic invoicing. Local development can use `ARCA_MOCK=true` so the response includes fake invoice data without real ARCA credentials.
 9. Handle `400`, `401`, `404`, and `500` using the error shape in [Error response shape](#error-response-shape).
@@ -392,11 +392,17 @@ Base route: `/sales`. All routes require the bearer token and operate on sales o
   "items": [
     {
       "product_id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+      "quantity": 1
+    },
+    {
+      "name": "Counter Service",
+      "description": "Manual cashier entry for checkout testing",
+      "unit_price": "199.99",
       "quantity": 2
     }
   ],
   "payment_methods": [
-    { "method": "cash", "amount": "300.00" }
+    { "method": "cash", "amount": "2900.48" }
   ]
 }
 ```
@@ -405,18 +411,35 @@ Base route: `/sales`. All routes require the bearer token and operate on sales o
 {
   "id": "b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a22",
   "user_id": "c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33",
-  "total": "300.00",
+  "total": "2900.48",
   "payment_methods": [
-    { "method": "cash", "amount": "300.00" }
+    { "method": "cash", "amount": "2900.48" }
   ],
   "split_ticket_groups": null,
   "items": [
     {
       "id": "d3eebc99-9c0b-4ef8-bb6d-6bb9bd380a44",
       "product_id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+      "name": null,
+      "description": null,
+      "iva": null,
+      "quantity": 1,
+      "unit_price": "2500.50",
+      "subtotal": "2500.50",
+      "discount_amount": "0.00",
+      "applied_promotions": [],
+      "applied_promotion_id": null,
+      "applied_promotion_type": null
+    },
+    {
+      "id": "e4eebc99-9c0b-4ef8-bb6d-6bb9bd380a55",
+      "product_id": "f5eebc99-9c0b-4ef8-bb6d-6bb9bd380a66",
+      "name": "Counter Service",
+      "description": "Manual cashier entry for checkout testing",
+      "iva": "21.00",
       "quantity": 2,
-      "unit_price": "150.00",
-      "subtotal": "300.00",
+      "unit_price": "199.99",
+      "subtotal": "399.98",
       "discount_amount": "0.00",
       "applied_promotions": [],
       "applied_promotion_id": null,
@@ -439,7 +462,7 @@ Fields:
 
 | Field | Required | Notes |
 |-------|----------|-------|
-| `items` | yes | Non-empty array. Each item needs a UUID `product_id` and `quantity >= 1`. |
+| `items` | yes | Non-empty array. Each item must be exactly one of: catalog-backed (`product_id` + `quantity`) or ad-hoc (`name` + `unit_price` + `quantity`). Never send both `product_id` and `name`/`unit_price` on the same item. |
 | `payment_methods` | yes | Non-empty array of `{ method, amount }` objects. Each `method` must be unique. Allowed values for `method`: `cash`, `transfer`, `card`, `qr`. `amount` is a money string. |
 | `split_ticket_groups` | no | Exactly 2 groups when present. Labels must be unique and non-empty; allocations must cover the ordered quantities. |
 | `invoice_requested` | no | Boolean, defaults to `false`. |
@@ -451,6 +474,41 @@ Notes:
 - The frontend should not rely on request order when comparing these arrays.
 - Split-ticket is operational/visual only: one sale, one payment set, one invoice flow.
 - Sale item responses always include `discount_amount`, `applied_promotions`, `applied_promotion_id`, and `applied_promotion_type`. See [`promotions-frontend-integration.md`](./promotions-frontend-integration.md) for details.
+
+### Ad-hoc sale items
+
+For the full frontend contract, modeling guidance, split-ticket caveats, and response interpretation, see [`ad-hoc-sale-items-frontend-integration.md`](./ad-hoc-sale-items-frontend-integration.md).
+
+`POST /sales` also supports items that do not come from the product catalog.
+
+Request shape per ad-hoc item:
+
+```json
+{
+  "name": "Counter Service",
+  "description": "Manual cashier entry for checkout testing",
+  "unit_price": "199.99",
+  "quantity": 2
+}
+```
+
+Validation and behavior:
+
+| Rule | Behavior |
+|------|----------|
+| Required fields | `name`, `unit_price`, and `quantity` are required for ad-hoc items. `description` is optional. |
+| Exclusive source | The item must be either catalog-backed or ad-hoc. Do not mix `product_id` with `name` / `unit_price`. |
+| `unit_price` | Must be a valid money string and greater than `0`. |
+| `quantity` | Must be an integer `>= 1`. |
+| IVA | Backend always persists `iva: "21.00"` for ad-hoc items. The request must not send an IVA field. |
+| Catalog lookup | Ad-hoc items are not persisted into the products catalog. |
+| Invoicing | Ad-hoc items are treated as facturable and use the fixed 21% IVA rate when `invoice_requested: true`. |
+
+Frontend expectations:
+
+- Treat ad-hoc `product_id` in sale responses as an opaque backend identifier. It exists so the sale can persist and split-ticket resolution can work. Do not use it as a product catalog lookup key.
+- If the cashier edits the ad-hoc line before closing the sale, that remains frontend-only state until the final `POST /sales`. There is no backend edit endpoint to document for this flow.
+- Prefer `discount_amount` plus `applied_promotions` as the source of truth for discounts. Legacy `applied_promotion_id` / `applied_promotion_type` should not drive ad-hoc discount UI.
 
 ### Split-ticket sale
 
@@ -699,7 +757,9 @@ Returns the same `SaleResponse` shape as create/list. Returns `400` if `:id` is 
 | Missing `payment_methods`        | 400    | validation error from class-validator |
 | Unsupported or duplicate payment methods | 400 | validation error from class-validator |
 | `split_ticket_groups` has the wrong shape, duplicate labels, or mismatched quantities | 400 | validation error from class-validator |
-| `product_id` does not exist      | 404    | Product <uuid> not found             |
+| Catalog `product_id` does not exist | 404 | Product <uuid> not found |
+| Ad-hoc item missing `name` or `unit_price` | 400 | `Ad-hoc sale items require a name` / `Ad-hoc sale items require a unit_price` |
+| Ad-hoc `unit_price` is zero or negative | 400 | `Ad-hoc sale items require a positive unit_price` |
 | `quantity` < 1 or not an integer | 400    | validation error from class-validator |
 | `invoice_requested=true` and any product has `facturable=false` | 400 | Product is not facturable and cannot be invoiced |
 | ARCA real-mode credentials are invalid or ARCA rejects the voucher | 500 | ARCA/SDK error message from backend |
@@ -836,10 +896,20 @@ interface PaymentMethodAllocation {
   amount: string;
 }
 
-interface SaleItemRequest {
+interface CatalogSaleItemRequest {
   product_id: string;
   quantity: number;
+  line_total?: string;
 }
+
+interface AdHocSaleItemRequest {
+  name: string;
+  description?: string;
+  unit_price: string;
+  quantity: number;
+}
+
+type SaleItemRequest = CatalogSaleItemRequest | AdHocSaleItemRequest;
 
 interface SplitTicketGroupItemRequest {
   product_id: string;
@@ -867,7 +937,10 @@ interface AppliedPromotion {
 
 interface SaleItemResponse {
   id: string;
-  product_id: string;
+  product_id: string | null;
+  name?: string | null;
+  description?: string | null;
+  iva?: string | null;
   quantity: number;
   unit_price: string;
   subtotal: string;
@@ -1056,7 +1129,7 @@ The collection uses runtime variables (`username`, `password`, `token`, `product
 - [ ] New list screens use paginated reads with `page`, `limit`, and `sort` instead of unbounded arrays.
 - [ ] Frontend handles both legacy array responses and paginated `{ data, meta }` responses during migration.
 - [ ] Frontend treats `meta.totalPages` and `meta.hasNext` as the source of truth for pagination controls.
-- [ ] Sale `items` array is non-empty and each item has `product_id` and `quantity ≥ 1`.
+- [ ] Sale `items` array is non-empty and each item is either catalog-backed (`product_id`) or ad-hoc (`name` + `unit_price`), always with `quantity ≥ 1`.
 - [ ] Frontend sends `invoice_requested: true` only when the cashier explicitly asks for electronic invoicing.
 - [ ] Frontend does not add async/polling behavior for ARCA; sale creation with invoice remains a synchronous request.
 - [ ] Frontend treats `invoice_status: "none"` as a non-fiscal sale and hides CAE/comprobante details.
@@ -1072,6 +1145,9 @@ The collection uses runtime variables (`username`, `password`, `token`, `product
 
 - [ ] Sale create requests always send `items` and `payment_methods` as `{ method, amount }` objects.
 - [ ] Frontend computes `amount` values in `payment_methods` based on how the cashier splits the total.
+- [ ] Frontend never sends both `product_id` and `name` / `unit_price` on the same sale item.
+- [ ] Frontend treats ad-hoc sale item `product_id` values from responses as opaque, not catalog ids.
+- [ ] Frontend keeps ad-hoc item editing local until the final `POST /sales`; there is no backend edit-sale-item endpoint.
 - [ ] Split-ticket checkout uses `split_ticket_groups` only when needed and enforces exactly 2 unique labels.
 - [ ] Frontend treats `payment_methods` as normalized response data, not request-order data.
 - [ ] Frontend treats `split_ticket_groups` as `null` when the sale is not split-ticketed.

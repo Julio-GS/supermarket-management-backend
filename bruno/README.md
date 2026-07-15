@@ -35,7 +35,9 @@ bruno/
 │   ├── Get Sale With Split Ticket.bru
 │   ├── Create Sale With ARCA Invoice.bru
 │   ├── Create Sale With Promotion.bru
-│   └── Get Sale With Promotion.bru
+│   ├── Get Sale With Promotion.bru
+│   ├── Create Sale With Ad-Hoc Items.bru
+│   └── Get Sale With Ad-Hoc Items.bru
 ├── promotions/
 │   ├── Create Promotion.bru
 │   ├── Create Store Promotion.bru
@@ -102,7 +104,7 @@ bru run "promotions" --env Local
 |----------|---------------------------------|------------------------------------------|
 | `baseUrl`| `http://localhost:3000/api/v1`  | Base URL for all requests.               |
 
-Collection variables (`username`, `password`, `token`, `productId`, `saleId`, `splitTicketSaleId`, `promotionId`, `storePromotionId`, `promoSaleId`, `providerPurchaseId`, `cae`, `cbteNro`, barcodes) are generated and extracted at runtime by pre-request and post-response scripts.
+Collection variables (`username`, `password`, `token`, `productId`, `saleId`, `splitTicketSaleId`, `promotionId`, `storePromotionId`, `promoSaleId`, `adHocSaleId`, `providerPurchaseId`, `cae`, `cbteNro`, barcodes) are generated and extracted at runtime by pre-request and post-response scripts.
 
 ## Covered flows
 
@@ -127,6 +129,8 @@ Collection variables (`username`, `password`, `token`, `productId`, `saleId`, `s
 14. **Create Sale With ARCA Invoice** — creates a fiscal sale and returns ARCA invoice data.
 15. **Create Sale With Promotion** — creates a 3-unit sale for the promoted product; stores `promoSaleId`. Verifies each item includes `discount_amount`, `applied_promotion_id`, `applied_promotion_type`, and the stacked `applied_promotions` array with `{ promotion_id, promotion_scope, promotion_type, discount_amount }` entries.
 16. **Get Sale With Promotion** — fetches the sale by id and confirms discount fields and `applied_promotions` are persisted on the sale read.
+17. **Create Sale With Ad-Hoc Items** — creates a mixed sale with one catalog item plus one ad-hoc item (`name`, optional `description`, `unit_price`, `quantity`); stores `adHocSaleId`. Verifies the ad-hoc response item includes fixed `iva: "21.00"`, a synthetic `product_id`, and only store-scoped entries in `applied_promotions`.
+18. **Get Sale With Ad-Hoc Items** — fetches the ad-hoc sale by id and confirms the descriptive fields and applied promotions are persisted on the sale read.
 
 ### Promotions
 17. **Create Promotion** — creates a `percentage` promotion (15 %) with `name`, `description`, `scope: "product"`, and `product_id`; stores `promotionId`.
@@ -176,6 +180,19 @@ The following requests cover end-to-end promotions testing. Run them in order af
 9. **(Optional) Run `Disable Promotion`** then **`List Promotions`** — the promotion still appears but `enabled` is now `false`. Run `Get Product` to confirm the promotions summary no longer includes it.
 
 > **Caveat**: The existing `Create Sale` (flow #8) expects a hardcoded total of `7501.50`. If a promotion is active on that product when it runs, the discounted total will differ and the test will fail. For end-to-end promotions testing, run the promotions flow separately from the main collection run, or disable the promotion before re-running `Create Sale`.
+
+## Ad-hoc sale items flow (manual)
+
+Run these after `Login` and `Create Product` have populated `token` and `productId`:
+
+1. **Run `Create Sale With Ad-Hoc Items`** — creates a mixed sale with one catalog item plus one ad-hoc item. Verify the ad-hoc item returns `name`, `description`, fixed `iva: "21.00"`, and a generated `product_id`.
+2. **Run `Get Sale With Ad-Hoc Items`** — confirms the same descriptive fields are persisted on reads.
+
+Notes:
+
+- The ad-hoc item `product_id` is a synthetic backend value for sale persistence. Treat it as opaque and do not use it as a catalog lookup key.
+- Ad-hoc items can receive store-wide promotions, but effective product-scoped promotions are filtered out of `applied_promotions`.
+- The request intentionally uses a dummy payment allocation amount because the API does not validate `payment_methods[].amount` against the computed total.
 
 ## Provider purchases flow
 

@@ -1,0 +1,47 @@
+meta {
+  name: Get Sale With Ad-Hoc Items
+  type: http
+  seq: 11
+}
+
+get {
+  url: {{baseUrl}}/sales/{{adHocSaleId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+vars:pre-request {
+  baseUrl: http://localhost:3000/api/v1
+}
+
+tests {
+  test("status is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("returns the requested ad-hoc sale", function() {
+    expect(res.body.id).to.equal(bru.getVar("adHocSaleId"));
+  });
+
+  test("persists the ad-hoc item fields", function() {
+    const adHocItem = res.body.items.find((item) => item.name === "Counter Service");
+    expect(adHocItem).to.exist;
+    expect(adHocItem.description).to.equal("Manual cashier entry for checkout testing");
+    expect(adHocItem.iva).to.equal("21.00");
+    expect(adHocItem.product_id).to.be.a("string");
+    expect(adHocItem.unit_price).to.equal("199.99");
+    expect(adHocItem.quantity).to.equal(2);
+  });
+
+  test("ad-hoc item keeps applied promotions limited to store scope", function() {
+    const adHocItem = res.body.items.find((item) => item.name === "Counter Service");
+    expect(adHocItem.applied_promotions).to.be.an("array");
+    expect(
+      adHocItem.applied_promotions.some((promotion) => promotion.promotion_scope === "product"),
+    ).to.equal(false);
+  });
+}

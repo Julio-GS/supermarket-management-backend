@@ -42,6 +42,9 @@ function toSaleResponse(sale: Sale): SaleResponseDto {
       (item): SaleItemResponseDto => ({
         id: item.id,
         product_id: item.product_id,
+        name: item.name ?? null,
+        description: item.description ?? null,
+        iva: item.iva ?? null,
         quantity: item.quantity,
         unit_price: item.unit_price,
         subtotal: item.subtotal,

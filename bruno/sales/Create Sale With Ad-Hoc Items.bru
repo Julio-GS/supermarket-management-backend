@@ -1,0 +1,81 @@
+meta {
+  name: Create Sale With Ad-Hoc Items
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{baseUrl}}/sales
+  body: json
+  auth: bearer
+}
+
+headers {
+  Content-Type: application/json
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "items": [
+      {
+        "name": "Counter Service",
+        "description": "Manual cashier entry for checkout testing",
+        "unit_price": "199.99",
+        "quantity": 2
+      }
+    ],
+    "payment_methods": [
+      { "method": "cash", "amount": "200" }
+    ],
+    "invoice_requested": false
+  }
+}
+
+vars:pre-request {
+  baseUrl: http://localhost:3001/api/v1
+}
+
+script:post-response {
+  bru.setVar("adHocSaleId", res.body.id);
+}
+
+tests {
+  test("status is 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+  
+  test("sale includes catalog and ad-hoc items", function() {
+    expect(res.body.items).to.be.an("array");
+    expect(res.body.items).to.have.lengthOf(2);
+  });
+  
+  test("catalog item keeps the catalog product id", function() {
+    const catalogItem = res.body.items.find((item) => item.product_id === bru.getVar("productId"));
+    expect(catalogItem).to.exist;
+    expect(catalogItem.quantity).to.equal(1);
+  });
+  
+  test("ad-hoc item returns descriptive fields and fixed iva", function() {
+    const adHocItem = res.body.items.find((item) => item.name === "Counter Service");
+    expect(adHocItem).to.exist;
+    expect(adHocItem.description).to.equal("Manual cashier entry for checkout testing");
+    expect(adHocItem.product_id).to.be.a("string");
+    expect(adHocItem.product_id).to.not.equal(bru.getVar("productId"));
+    expect(adHocItem.iva).to.equal("21.00");
+    expect(adHocItem.unit_price).to.equal("199.99");
+    expect(adHocItem.quantity).to.equal(2);
+  });
+  
+  test("ad-hoc item exposes discount fields and excludes product-scoped applied promotions", function() {
+    const adHocItem = res.body.items.find((item) => item.name === "Counter Service");
+    expect(adHocItem.discount_amount).to.be.a("string");
+    expect(adHocItem.applied_promotions).to.be.an("array");
+    expect(
+      adHocItem.applied_promotions.some((promotion) => promotion.promotion_scope === "product"),
+    ).to.equal(false);
+  });
+}

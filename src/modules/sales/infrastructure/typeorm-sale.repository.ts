@@ -64,9 +64,10 @@ function buildSplitTicketAllocations(
   const itemsByProduct = new Map<string, SaleItemEntity[]>();
 
   for (const item of saleItems) {
-    const currentItems = itemsByProduct.get(item.product_id) ?? [];
+    const pid = item.product_id ?? "";
+    const currentItems = itemsByProduct.get(pid) ?? [];
     currentItems.push(item);
-    itemsByProduct.set(item.product_id, currentItems);
+    itemsByProduct.set(pid, currentItems);
   }
 
   for (const group of groups) {
@@ -316,6 +317,9 @@ export class TypeOrmSaleRepository extends SaleRepositoryPort {
         "item.id",
         "item.sale_id",
         "item.product_id",
+        "item.name",
+        "item.description",
+        "item.iva",
         "item.quantity",
         "item.unit_price",
         "item.subtotal",
@@ -366,6 +370,9 @@ export class TypeOrmSaleRepository extends SaleRepositoryPort {
       item.id = saleItem.id;
       item.sale_id = saleItem.sale_id;
       item.product_id = saleItem.product_id;
+      item.name = saleItem.name ?? null;
+      item.description = saleItem.description ?? null;
+      item.iva = saleItem.iva ?? null;
       item.quantity = saleItem.quantity;
         item.unit_price = saleItem.unit_price;
         item.subtotal = saleItem.subtotal;

@@ -9,6 +9,7 @@ import { AddAmountToSalePaymentMethods1793000000000 } from "../database/migratio
 import { AddPromotionsAndSaleDiscounts1800000000000 } from "../database/migrations/1800000000000-AddPromotionsAndSaleDiscounts";
 import { AddSpecialProductCodes1802000000000 } from "../database/migrations/1802000000000-AddSpecialProductCodes";
 import { AddProviderPurchases1803000000000 } from "../database/migrations/1803000000000-AddProviderPurchases";
+import { AddAdhocSaleItems1804000000000 } from "../database/migrations/1804000000000-AddAdhocSaleItems";
 
 export const databaseConfig = registerAs(
   "database",
@@ -31,6 +32,7 @@ export const databaseConfig = registerAs(
       AddPromotionsAndSaleDiscounts1800000000000,
       AddSpecialProductCodes1802000000000,
       AddProviderPurchases1803000000000,
+      AddAdhocSaleItems1804000000000,
     ],
     migrationsRun: process.env.NODE_ENV !== "test",
   }),

@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { randomUUID } from "crypto";
 import { ProductRepositoryPort } from "../../products/application/product.repository.port";
 import { Product } from "../../products/domain/product.entity";
 import { SaleRepositoryPort, SaleItemCreateData } from "./sale.repository.port";
@@ -21,7 +22,14 @@ import {
 } from "../../../shared/errors/domain.error";
 import { Money } from "../../../shared/money/money.helper";
 
-export interface CreateSaleItemInput extends SaleSplitTicketItemInput {
+const AD_HOC_IVA_RATE = "21.00";
+
+export interface CreateSaleItemInput {
+  product_id?: string;
+  name?: string;
+  description?: string;
+  unit_price?: string;
+  quantity: number;
   line_total?: string;
   split_ticket?: SaleItemSplitTicketInput;
 }
@@ -68,7 +76,7 @@ function validatePaymentMethods(
 }
 
 function aggregateQuantities(
-  items: SaleSplitTicketItemInput[],
+  items: { product_id: string; quantity: number }[],
 ): Map<string, number> {
   const totals = new Map<string, number>();
 
@@ -169,19 +177,19 @@ function normalizeItemSplitTicketGroups(
       splitTicket.group_2_quantity < 0
     ) {
       throw new ValidationError(
-        `Split ticket allocation for product ${item.product_id} must use non-negative integer quantities`,
+        `Split ticket allocation for product ${item.product_id!} must use non-negative integer quantities`,
       );
     }
 
     if (splitTicket.group_1_quantity + splitTicket.group_2_quantity !== item.quantity) {
       throw new ValidationError(
-        `Split ticket allocation for product ${item.product_id} must match the item quantity`,
+        `Split ticket allocation for product ${item.product_id!} must match the item quantity`,
       );
     }
 
     if (splitTicket.group_1_quantity > 0) {
       groups[0].items.push({
-        product_id: item.product_id,
+        product_id: item.product_id!,
         quantity: splitTicket.group_1_quantity,
       });
       hasGroupOneAllocations = true;
@@ -189,7 +197,7 @@ function normalizeItemSplitTicketGroups(
 
     if (splitTicket.group_2_quantity > 0) {
       groups[1].items.push({
-        product_id: item.product_id,
+        product_id: item.product_id!,
         quantity: splitTicket.group_2_quantity,
       });
       hasGroupTwoAllocations = true;
@@ -220,7 +228,8 @@ function resolveSplitTicketGroups(
     );
   }
 
-  const itemTotals = aggregateQuantities(items);
+  const identifiedItems = items as { product_id: string; quantity: number }[];
+  const itemTotals = aggregateQuantities(identifiedItems);
 
   if (hasExplicitGroups) {
     return normalizeExplicitSplitTicketGroups(split_ticket_groups, itemTotals);
@@ -243,6 +252,27 @@ export class CreateSaleUseCase {
       throw new ValidationError("Sale must contain at least one item");
     }
 
+    // Assign synthetic UUIDs to ad-hoc items so split-ticket resolution works
+    const adHocIndices = new Set<number>();
+    for (let i = 0; i < input.items.length; i++) {
+      const item = input.items[i];
+      if (!item.product_id) {
+        // Validate ad-hoc item has required fields
+        if (!item.name || item.name.trim() === "") {
+          throw new ValidationError("Ad-hoc sale items require a name");
+        }
+        if (!item.unit_price || item.unit_price === "") {
+          throw new ValidationError("Ad-hoc sale items require a unit_price");
+        }
+        const price = Money.parse(item.unit_price);
+        if (price.lte(0)) {
+          throw new ValidationError("Ad-hoc sale items require a positive unit_price");
+        }
+        item.product_id = randomUUID();
+        adHocIndices.add(i);
+      }
+    }
+
     const paymentMethods = validatePaymentMethods(input.payment_methods);
     const splitTicketGroups = resolveSplitTicketGroups(
       input.items,
@@ -254,12 +284,19 @@ export class CreateSaleUseCase {
     const loadedItems: { product: Product; quantity: number }[] = [];
     let total = Money.zero();
 
-    const productIds = [...new Set(input.items.map((item) => item.product_id))];
+    // Only look up catalog product IDs (skip synthetic ad-hoc IDs)
+    const catalogProductIds = [...new Set(
+      input.items
+        .filter((_, i) => !adHocIndices.has(i))
+        .map((item) => item.product_id!),
+    )];
     const productsById = new Map(
-      (await this.products.findByIdsForSale(productIds)).map((product) => [
-        product.id,
-        product,
-      ]),
+      catalogProductIds.length > 0
+        ? (await this.products.findByIdsForSale(catalogProductIds)).map((product) => [
+            product.id,
+            product,
+          ])
+        : [],
     );
 
     // First pass: validate products and build per-item price data
@@ -272,7 +309,28 @@ export class CreateSaleUseCase {
 
     for (let i = 0; i < input.items.length; i++) {
       const item = input.items[i];
-      const product = productsById.get(item.product_id);
+
+      if (adHocIndices.has(i)) {
+        // --- Ad-hoc item ---
+        const unitPrice = Money.parse(item.unit_price!);
+
+        // Ad-hoc items are always facturable with fixed 21% IVA
+        if (invoiceRequested) {
+          // Ad-hoc items are always facturable — no product.facturable check needed
+        }
+
+        // Ad-hoc items skip product-level promotion resolution but are
+        // included so store-wide promotions can apply
+        resolutionItems.push({
+          productId: item.product_id!,
+          unitPrice: Money.toString(unitPrice),
+          quantity: item.quantity,
+        });
+
+        continue;
+      }
+
+      const product = productsById.get(item.product_id!);
       if (!product) {
         throw new NotFoundError(`Product ${item.product_id} not found`);
       }
@@ -344,7 +402,8 @@ export class CreateSaleUseCase {
       }
     }
 
-    // Resolve promotions — skip manual items by passing null for their resolution
+    // Resolve promotions — skip manual items, but include ad-hoc items
+    // (ad-hoc items get store promotions; product promotions won't match synthetic IDs)
     const fixedResolutionItems = resolutionItems.map((ri, idx) =>
       manualItemIndices.includes(idx) ? null : ri,
     );
@@ -369,11 +428,53 @@ export class CreateSaleUseCase {
 
     // Second pass: build sale items
     for (let i = 0; i < input.items.length; i++) {
+      const isAdHoc = adHocIndices.has(i);
       const isManual = manualItemIndices.includes(i);
       const resItem = resolutionItems[i];
       const unitPrice = Money.parse(resItem.unitPrice);
 
-      if (isManual) {
+      if (isAdHoc) {
+        // Ad-hoc item: subtotal = unit_price × quantity, with promotions from store scope
+        const item = input.items[i];
+        const grossSubtotal = Money.multiply(unitPrice, resItem.quantity);
+        let discountAmount = Money.zero();
+        let appliedPromotionId: string | null = null;
+        let appliedPromotionType: string | null = null;
+
+        const resolved = resolvedByIndex.get(i) ?? null;
+        if (resolved) {
+          discountAmount = Money.parse(resolved.discountAmount);
+          appliedPromotionId = resolved.promotionId;
+          appliedPromotionType = resolved.type;
+        }
+
+        // Filter out product-scoped promotions; ad-hoc items only receive store promotions
+        const storePromotions = (resolved?.applied_promotions ?? []).filter(
+          (p) => p.promotion_scope === "store",
+        );
+        let storeDiscountTotal = Money.zero();
+        for (const p of storePromotions) {
+          storeDiscountTotal = Money.add(storeDiscountTotal, Money.parse(p.discount_amount));
+        }
+        const storeDiscountAmount = Money.toString(storeDiscountTotal);
+
+        const discountedSubtotal = Money.subtract(grossSubtotal, storeDiscountTotal);
+
+        saleItems.push({
+          product_id: resItem.productId,
+          name: item.name ?? null,
+          description: item.description ?? null,
+          iva: AD_HOC_IVA_RATE,
+          quantity: resItem.quantity,
+          unit_price: Money.toString(unitPrice),
+          subtotal: Money.toString(discountedSubtotal),
+          discount_amount: storeDiscountAmount,
+          applied_promotions: storePromotions,
+          applied_promotion_id: appliedPromotionId,
+          applied_promotion_type: appliedPromotionType,
+        });
+        total = Money.add(total, discountedSubtotal);
+      } else if (isManual) {
         // Manual product: subtotal = line_total, no discount, no promotions
         const subtotal = Money.toString(unitPrice);
         saleItems.push({
@@ -427,7 +528,11 @@ export class CreateSaleUseCase {
 
     if (invoiceRequested) {
       const invoiceItems = saleItems.map((si) => {
-        const product = productsById.get(si.product_id);
+        // Ad-hoc items carry their own iva_rate; catalog items use the product's iva
+        if (si.iva) {
+          return { line_total: si.subtotal, iva_rate: si.iva };
+        }
+        const product = productsById.get(si.product_id!);
         return {
           line_total: si.subtotal,
           iva_rate: product?.iva ?? "0",

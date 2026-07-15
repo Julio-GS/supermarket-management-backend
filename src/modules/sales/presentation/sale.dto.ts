@@ -33,6 +33,29 @@ class MoneyStringOrEmptyConstraint implements ValidatorConstraintInterface {
   }
 }
 
+@ValidatorConstraint({ name: "saleItemSource", async: false })
+class SaleItemSourceConstraint implements ValidatorConstraintInterface {
+  validate(_value: unknown, args: ValidationArguments): boolean {
+    const obj = args.object as Record<string, unknown>;
+    const hasProductId = obj.product_id !== undefined && obj.product_id !== null && obj.product_id !== "";
+    const hasName = obj.name !== undefined && obj.name !== null && obj.name !== "";
+    const hasUnitPrice = obj.unit_price !== undefined && obj.unit_price !== null && obj.unit_price !== "";
+
+    // Must be either catalog (product_id) OR ad-hoc (name + unit_price), not both, not neither
+    if (hasProductId && !hasName && !hasUnitPrice) {
+      return true; // catalog item
+    }
+    if (!hasProductId && hasName && hasUnitPrice) {
+      return true; // ad-hoc item
+    }
+    return false;
+  }
+
+  defaultMessage(): string {
+    return "Each sale item must be either catalog-backed (product_id) or ad-hoc (name + unit_price), never both";
+  }
+}
+
 export class PaymentMethodAllocationDto {
   @IsIn(PAYMENT_METHODS)
   method!: PaymentMethod;
@@ -55,8 +78,22 @@ export class SaleItemSplitTicketDto {
 }
 
 export class SaleItemDto {
+  @IsOptional()
   @IsUUID()
-  product_id!: string;
+  product_id?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @Validate(MoneyStringOrEmptyConstraint)
+  unit_price?: string;
 
   @IsInt()
   @Min(1)
@@ -71,6 +108,9 @@ export class SaleItemDto {
   @ValidateNested()
   @Type(() => SaleItemSplitTicketDto)
   split_ticket?: SaleItemSplitTicketDto;
+
+  @Validate(SaleItemSourceConstraint)
+  _source!: string;
 }
 
 export class SplitTicketGroupItemDto {
@@ -122,7 +162,10 @@ export class CreateSaleDto {
 
 export class SaleItemResponseDto {
   id!: string;
-  product_id!: string;
+  product_id!: string | null;
+  name?: string | null;
+  description?: string | null;
+  iva?: string | null;
   quantity!: number;
   unit_price!: string;
   subtotal!: string;

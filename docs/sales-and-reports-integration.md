@@ -7,8 +7,9 @@ It assumes you already have auth, product, and basic sale flows working. For the
 ## Quick path
 
 1. Sales `payment_methods` are now objects with `method` and `amount` — not plain strings.
-2. Reports live at `GET /reports?window=day|week|month` and require the bearer token.
-3. Run the new Bruno requests to validate both modules end-to-end.
+2. `POST /sales` accepts both catalog items and ad-hoc items; both still use the same payment allocation format.
+3. Reports live at `GET /reports?window=day|week|month` and require the bearer token.
+4. Run the Bruno requests to validate both modules end-to-end.
 
 ## 1. Sales: Payment Method Allocations
 
@@ -105,6 +106,34 @@ The `amount` must be computed by the checkout UI based on how the cashier splits
 ### Sale item discount fields
 
 Sale item responses now include promotion discount fields: `discount_amount`, `applied_promotions`, and legacy `applied_promotion_id` / `applied_promotion_type`. These are always present and do not require extra query parameters. For promotion stacking, store-wide promotions, and the full discount integration model, see [`promotions-frontend-integration.md`](./promotions-frontend-integration.md).
+
+### Ad-hoc sale items with payment allocations
+
+Ad-hoc sale items use the same `POST /sales` endpoint and the same `payment_methods` array. For the dedicated frontend guide, including union typing, response mapping, and split-ticket caveats for ad-hoc lines, see [`ad-hoc-sale-items-frontend-integration.md`](./ad-hoc-sale-items-frontend-integration.md).
+
+```json
+{
+  "items": [
+    {
+      "name": "Counter Service",
+      "description": "Manual cashier entry for checkout testing",
+      "unit_price": "199.99",
+      "quantity": 2
+    }
+  ],
+  "payment_methods": [
+    { "method": "cash", "amount": "399.98" }
+  ]
+}
+```
+
+Ad-hoc rules that matter to consumers:
+
+- Required fields: `name`, `unit_price`, `quantity`. `description` is optional.
+- The backend persists `iva: "21.00"` for ad-hoc items.
+- The backend generates a synthetic `product_id` for the stored sale item. Treat it as opaque and never as a catalog lookup id.
+- Ad-hoc items can receive store-wide promotions. Effective product-scoped promotions are excluded from the ad-hoc `applied_promotions` response.
+- The API still does not validate that the sum of `payment_methods[].amount` matches the computed sale `total`.
 
 ### Split-ticket with payment allocations
 
@@ -269,6 +298,8 @@ New requests added to `bruno/`:
 
 | File | Seq | What it tests |
 |------|-----|---------------|
+| `Create Sale With Ad-Hoc Items.bru` | 10 | Mixed catalog + ad-hoc sale creation with persisted descriptive fields and fixed 21% IVA. |
+| `Get Sale With Ad-Hoc Items.bru` | 11 | Ad-hoc sale read-back verification, including stored descriptive fields and store-only applied promotions. |
 | `List Sales Paginated.bru` | 15 | Paginated sales endpoint with `{ data, meta }` structure and payment method allocation shape in response items. |
 | `Get Business Report - Day.bru` | 16 | Day window report: fields, range timezone, payment method amounts, top products. |
 | `Get Business Report - Week.bru` | 17 | Week window report: fields, range boundaries, top products limit (≤10). |
@@ -287,7 +318,7 @@ Or individually:
 bru run "Get Business Report - Day.bru" --env Local
 ```
 
-The existing sales Bruno requests (`Create Sale.bru`, `Create Sale With Split Ticket.bru`, `Create Sale With ARCA Invoice.bru`, `List Sales.bru`, `Get Sale.bru`) already use the new `{method, amount}` payment format — no changes needed there.
+The existing sales Bruno requests (`Create Sale.bru`, `Create Sale With Split Ticket.bru`, `Create Sale With ARCA Invoice.bru`, `List Sales.bru`, `Get Sale.bru`) already use the new `{method, amount}` payment format. The ad-hoc sale requests extend that same pattern to mixed and non-catalog checkout flows.
 
 ## Checklist
 
@@ -295,6 +326,8 @@ The existing sales Bruno requests (`Create Sale.bru`, `Create Sale With Split Ti
 
 - [ ] Checkout UI collects a payment method breakdown from the cashier (method + amount).
 - [ ] Every `POST /sales` call sends `payment_methods` as `PaymentMethodAllocation[]`.
+- [ ] Frontend supports both catalog sale items and ad-hoc sale items in the same checkout request.
+- [ ] Frontend treats ad-hoc response `product_id` values as opaque identifiers, not product catalog ids.
 - [ ] Frontend displays `payment_methods` from sale responses as `method: $amount`.
 - [ ] Split-ticket checkout sends one `payment_methods` array for the whole sale, not per group.
 - [ ] Legacy `string[]` format is fully removed from all frontend call sites.
@@ -313,6 +346,8 @@ The existing sales Bruno requests (`Create Sale.bru`, `Create Sale With Split Ti
 ### Verification
 
 - [ ] `bruno\List Sales Paginated.bru` passes against the local backend.
+- [ ] `bruno\sales\Create Sale With Ad-Hoc Items.bru` passes against the local backend.
+- [ ] `bruno\sales\Get Sale With Ad-Hoc Items.bru` passes against the local backend.
 - [ ] `bruno\Get Business Report - Day.bru` passes against the local backend.
 - [ ] `bruno\Get Business Report - Week.bru` passes against the local backend.
 - [ ] `bruno\Get Business Report - Month.bru` passes against the local backend.

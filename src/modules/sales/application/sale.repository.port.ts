@@ -10,7 +10,10 @@ import { Page, PaginationOptions } from "../../../shared/read-model/page";
 export type SaleReadOptions = PaginationOptions;
 
 export interface SaleItemCreateData {
-  product_id: string;
+  product_id: string | null;
+  name?: string | null;
+  description?: string | null;
+  iva?: string | null;
   quantity: number;
   unit_price: string;
   subtotal: string;

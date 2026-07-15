@@ -78,15 +78,17 @@ export class TypeOrmReportRepository extends ReportRepositoryPort {
     const results = await this.em
       .createQueryBuilder()
       .select("si.product_id", "productId")
-      .addSelect("p.detalle", "detalle")
+      .addSelect("COALESCE(p.detalle, si.name, si.description, 'Ad-hoc item')", "detalle")
       .addSelect("SUM(si.quantity)::int", "units_sold")
       .from("sale_items", "si")
       .innerJoin("sales", "sales", "sales.id = si.sale_id")
-      .innerJoin("products", "p", "p.id = si.product_id")
+      .leftJoin("products", "p", "p.id = si.product_id")
       .where("sales.created_at >= :startsAt", { startsAt })
       .andWhere("sales.created_at <= :endsAt", { endsAt })
       .groupBy("si.product_id")
       .addGroupBy("p.detalle")
+      .addGroupBy("si.name")
+      .addGroupBy("si.description")
       .orderBy("units_sold", "DESC")
       .getRawMany<{
         productId: string;

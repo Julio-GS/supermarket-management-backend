@@ -18,8 +18,17 @@ export class SaleItemEntity {
   @Column({ type: "uuid", name: "sale_id" })
   sale_id!: string;
 
-  @Column({ type: "uuid", name: "product_id" })
-  product_id!: string;
+  @Column({ type: "uuid", name: "product_id", nullable: true })
+  product_id!: string | null;
+
+  @Column({ type: "varchar", length: 255, nullable: true })
+  name?: string | null;
+
+  @Column({ type: "text", nullable: true })
+  description?: string | null;
+
+  @Column({ type: "numeric", precision: 5, scale: 2, nullable: true })
+  iva?: string | null;
 
   @Column({ type: "integer" })
   quantity!: number;

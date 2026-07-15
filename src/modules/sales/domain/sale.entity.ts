@@ -62,7 +62,10 @@ export class Sale {
 export class SaleItem {
   id!: string;
   sale_id!: string;
-  product_id!: string;
+  product_id!: string | null;
+  name?: string | null;
+  description?: string | null;
+  iva?: string | null;
   quantity!: number;
   unit_price!: string;
   subtotal!: string;

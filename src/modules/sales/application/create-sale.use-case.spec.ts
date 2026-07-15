@@ -982,4 +982,384 @@ describe("CreateSaleUseCase", () => {
       expect(result.items).toHaveLength(2);
     });
   });
+
+  describe("ad-hoc (non-catalog) items", () => {
+    it("accepts mixed catalog and ad-hoc items in a single sale", async () => {
+      const product = buildProduct();
+      products.findByIdsForSale.mockResolvedValue([product]);
+      promotionResolver.resolveForSaleItems.mockResolvedValue([null, null]);
+      sales.create.mockResolvedValue(
+        buildSale({
+          total: "621.00",
+          items: [
+            {
+              id: "item-catalog",
+              sale_id: "sale-id",
+              product_id: product.id,
+              quantity: 1,
+              unit_price: "121.00",
+              subtotal: "121.00",
+              discount_amount: "0.00",
+              applied_promotions: [],
+            },
+            {
+              id: "item-adhoc",
+              sale_id: "sale-id",
+              product_id: expect.any(String) as unknown as string,
+              name: "Alfajor",
+              iva: "21.00",
+              quantity: 2,
+              unit_price: "250.00",
+              subtotal: "500.00",
+              discount_amount: "0.00",
+              applied_promotions: [],
+            },
+          ],
+        }),
+      );
+
+      const result = await useCase.execute({
+        user_id: "user-id",
+        items: [
+          { product_id: product.id, quantity: 1 },
+          { name: "Alfajor", unit_price: "250.00", quantity: 2 },
+        ],
+        payment_methods: [{ method: "cash", amount: "621.00" }],
+      });
+
+      expect(result.total).toBe("621.00");
+      expect(result.items).toHaveLength(2);
+      // Catalog item unchanged
+      expect(result.items[0].product_id).toBe(product.id);
+      // Ad-hoc item has a synthetic product_id
+      expect(result.items[1].product_id).toBeTruthy();
+      expect(result.items[1].name).toBe("Alfajor");
+      expect(result.items[1].iva).toBe("21.00");
+    });
+
+    it("creates a sale with only ad-hoc items", async () => {
+      products.findByIdsForSale.mockResolvedValue([]);
+      promotionResolver.resolveForSaleItems.mockResolvedValue([null]);
+      sales.create.mockResolvedValue(
+        buildSale({
+          total: "500.00",
+          items: [
+            {
+              id: "item-adhoc",
+              sale_id: "sale-id",
+              product_id: "synthetic-uuid",
+              name: "Servicio técnico",
+              iva: "21.00",
+              quantity: 1,
+              unit_price: "500.00",
+              subtotal: "500.00",
+              discount_amount: "0.00",
+              applied_promotions: [],
+            } as any,
+          ],
+        }),
+      );
+
+      const result = await useCase.execute({
+        user_id: "user-id",
+        items: [
+          { name: "Servicio técnico", unit_price: "500.00", quantity: 1 },
+        ],
+        payment_methods: [{ method: "cash", amount: "500.00" }],
+      });
+
+      expect(result.total).toBe("500.00");
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0].name).toBe("Servicio técnico");
+    });
+
+    it("rejects ad-hoc item with missing name", async () => {
+      await expect(
+        useCase.execute({
+          user_id: "user-id",
+          items: [{ unit_price: "100.00", quantity: 1, name: "" } as any],
+          payment_methods: [{ method: "cash", amount: "100.00" }],
+        }),
+      ).rejects.toBeInstanceOf(ValidationError);
+
+      expect(sales.create).not.toHaveBeenCalled();
+    });
+
+    it("rejects ad-hoc item with missing unit_price", async () => {
+      await expect(
+        useCase.execute({
+          user_id: "user-id",
+          items: [{ name: "Alfajor", quantity: 1, unit_price: "" } as any],
+          payment_methods: [{ method: "cash", amount: "100.00" }],
+        }),
+      ).rejects.toBeInstanceOf(ValidationError);
+
+      expect(sales.create).not.toHaveBeenCalled();
+    });
+
+    it("rejects ad-hoc item with zero or negative unit_price", async () => {
+      await expect(
+        useCase.execute({
+          user_id: "user-id",
+          items: [{ name: "Alfajor", unit_price: "0.00", quantity: 1 }],
+          payment_methods: [{ method: "cash", amount: "0.00" }],
+        }),
+      ).rejects.toBeInstanceOf(ValidationError);
+
+      await expect(
+        useCase.execute({
+          user_id: "user-id",
+          items: [{ name: "Alfajor", unit_price: "-10.00", quantity: 1 }],
+          payment_methods: [{ method: "cash", amount: "10.00" }],
+        }),
+      ).rejects.toBeInstanceOf(ValidationError);
+
+      expect(sales.create).not.toHaveBeenCalled();
+    });
+
+    it("uses 21% IVA for ad-hoc items in invoice requests", async () => {
+      const product = buildProduct();
+      products.findByIdsForSale.mockResolvedValue([product]);
+      promotionResolver.resolveForSaleItems.mockResolvedValue([null, null]);
+      issueInvoice.issue.mockResolvedValue({
+        cae: "74154876254185",
+        cae_vto: "20240111",
+        cbte_nro: 1,
+        cbte_tipo: 6,
+        pto_vta: 1,
+      });
+      sales.create.mockResolvedValue(
+        buildSale({ invoice_status: "issued", cae: "74154876254185" }),
+      );
+
+      await useCase.execute({
+        user_id: "user-id",
+        items: [
+          { product_id: product.id, quantity: 1 },
+          { name: "Alfajor", unit_price: "250.00", quantity: 2 },
+        ],
+        invoice_requested: true,
+        payment_methods: [{ method: "cash", amount: "621.00" }],
+      });
+
+      // Ad-hoc item should use fixed 21% IVA
+      expect(issueInvoice.issue).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          { line_total: "121.00", iva_rate: "21.00" },
+          { line_total: "500.00", iva_rate: "21.00" },
+        ]),
+      );
+    });
+
+    it("includes ad-hoc items in promotion resolution for store promotions", async () => {
+      const product = buildProduct();
+      products.findByIdsForSale.mockResolvedValue([product]);
+      promotionResolver.resolveForSaleItems.mockResolvedValue([null, null]);
+      sales.create.mockResolvedValue(
+        buildSale({
+          total: "621.00",
+          items: [
+            {
+              id: "item-catalog",
+              sale_id: "sale-id",
+              product_id: product.id,
+              quantity: 1,
+              unit_price: "121.00",
+              subtotal: "121.00",
+              discount_amount: "0.00",
+              applied_promotions: [],
+            },
+            {
+              id: "item-adhoc",
+              sale_id: "sale-id",
+              product_id: expect.any(String) as unknown as string,
+              name: "Alfajor",
+              quantity: 2,
+              unit_price: "250.00",
+              subtotal: "500.00",
+              discount_amount: "0.00",
+              applied_promotions: [],
+            } as any,
+          ],
+        }),
+      );
+
+      await useCase.execute({
+        user_id: "user-id",
+        items: [
+          { product_id: product.id, quantity: 1 },
+          { name: "Alfajor", unit_price: "250.00", quantity: 2 },
+        ],
+        payment_methods: [{ method: "cash", amount: "621.00" }],
+      });
+
+      // Both catalog and ad-hoc items should be passed to promotion resolver
+      expect(promotionResolver.resolveForSaleItems).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({ productId: product.id, unitPrice: "121.00", quantity: 1 }),
+          expect.objectContaining({ unitPrice: "250.00", quantity: 2 }),
+        ]),
+      );
+    });
+
+    it("applies store-wide promotion discount to ad-hoc items", async () => {
+      products.findByIdsForSale.mockResolvedValue([]);
+      promotionResolver.resolveForSaleItems.mockResolvedValue([
+        {
+          promotionId: "store-promo-10",
+          type: "percentage",
+          discountAmount: "50.00",
+          applied_promotions: [
+            {
+              promotion_id: "store-promo-10",
+              promotion_scope: "store",
+              promotion_type: "percentage",
+              discount_amount: "50.00",
+            },
+          ],
+        },
+      ]);
+      sales.create.mockResolvedValue(
+        buildSale({
+          total: "450.00",
+          items: [
+            {
+              id: "item-adhoc",
+              sale_id: "sale-id",
+              product_id: "synthetic-uuid",
+              name: "Alfajor",
+              iva: "21.00",
+              quantity: 2,
+              unit_price: "250.00",
+              subtotal: "450.00",
+              discount_amount: "50.00",
+              applied_promotions: [
+                {
+                  promotion_id: "store-promo-10",
+                  promotion_scope: "store",
+                  promotion_type: "percentage",
+                  discount_amount: "50.00",
+                },
+              ],
+            } as any,
+          ],
+        }),
+      );
+
+      const result = await useCase.execute({
+        user_id: "user-id",
+        items: [{ name: "Alfajor", unit_price: "250.00", quantity: 2 }],
+        payment_methods: [{ method: "cash", amount: "450.00" }],
+      });
+
+      expect(result.total).toBe("450.00");
+      expect(result.items[0].discount_amount).toBe("50.00");
+      // Only store promotions applied
+      expect(result.items[0].applied_promotions).toEqual([
+        expect.objectContaining({ promotion_scope: "store" }),
+      ]);
+    });
+
+    it("filters out product-scoped promotions for ad-hoc items", async () => {
+      products.findByIdsForSale.mockResolvedValue([]);
+      promotionResolver.resolveForSaleItems.mockResolvedValue([
+        {
+          promotionId: "product-promo-1",
+          type: "percentage",
+          discountAmount: "25.00",
+          applied_promotions: [
+            {
+              promotion_id: "product-promo-1",
+              promotion_scope: "product",
+              promotion_type: "percentage",
+              discount_amount: "25.00",
+            },
+            {
+              promotion_id: "store-promo-10",
+              promotion_scope: "store",
+              promotion_type: "percentage",
+              discount_amount: "20.00",
+            },
+          ],
+        },
+      ]);
+      sales.create.mockResolvedValue(
+        buildSale({
+          total: "480.00",
+          items: [
+            {
+              id: "item-adhoc",
+              sale_id: "sale-id",
+              product_id: "synthetic-uuid",
+              name: "Alfajor",
+              iva: "21.00",
+              quantity: 2,
+              unit_price: "250.00",
+              subtotal: "480.00",
+              discount_amount: "20.00",
+              applied_promotions: [
+                {
+                  promotion_id: "store-promo-10",
+                  promotion_scope: "store",
+                  promotion_type: "percentage",
+                  discount_amount: "20.00",
+                },
+              ],
+            } as any,
+          ],
+        }),
+      );
+
+      const result = await useCase.execute({
+        user_id: "user-id",
+        items: [{ name: "Alfajor", unit_price: "250.00", quantity: 2 }],
+        payment_methods: [{ method: "cash", amount: "480.00" }],
+      });
+
+      // Product-scoped promotion should be filtered out
+      expect(result.items[0].applied_promotions).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ promotion_scope: "product" }),
+        ]),
+      );
+      // Store promotion should remain
+      expect(result.items[0].applied_promotions).toEqual([
+        expect.objectContaining({ promotion_scope: "store" }),
+      ]);
+      // Discount should only be the store portion
+      expect(result.items[0].discount_amount).toBe("20.00");
+    });
+
+    it("does not fetch product catalog for ad-hoc items", async () => {
+      sales.create.mockResolvedValue(
+        buildSale({
+          total: "500.00",
+          items: [
+            {
+              id: "item-adhoc",
+              sale_id: "sale-id",
+              product_id: "synthetic-uuid",
+              name: "Alfajor",
+              iva: "21.00",
+              quantity: 2,
+              unit_price: "250.00",
+              subtotal: "500.00",
+              discount_amount: "0.00",
+              applied_promotions: [],
+            } as any,
+          ],
+        }),
+      );
+      promotionResolver.resolveForSaleItems.mockResolvedValue([null]);
+
+      await useCase.execute({
+        user_id: "user-id",
+        items: [{ name: "Alfajor", unit_price: "250.00", quantity: 2 }],
+        payment_methods: [{ method: "cash", amount: "500.00" }],
+      });
+
+      // findByIdsForSale should not be called when there are only ad-hoc items
+      expect(products.findByIdsForSale).not.toHaveBeenCalled();
+    });
+  });
 });
