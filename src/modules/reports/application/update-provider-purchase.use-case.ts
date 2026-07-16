@@ -33,6 +33,10 @@ export class UpdateProviderPurchaseUseCase {
       throw new ValidationError("provider_name is required");
     }
 
+    if (command.amount !== undefined && Number(command.amount) <= 0) {
+      throw new ValidationError("amount must be a positive number");
+    }
+
     const result = await this.repo.update(id, {
       provider_name: providerName,
       amount: command.amount,

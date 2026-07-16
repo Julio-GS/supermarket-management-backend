@@ -78,6 +78,17 @@ describe("UpdateProviderPurchaseUseCase", () => {
     expect(cache.deleteByPrefix).not.toHaveBeenCalled();
   });
 
+  it.each(["0", "-1"])("rejects non-positive amount %s", async (amount) => {
+    repo.findById.mockResolvedValue(makePurchase());
+
+    await expect(
+      useCase.execute("purchase-1", { amount }),
+    ).rejects.toThrow(new ValidationError("amount must be a positive number"));
+
+    expect(repo.update).not.toHaveBeenCalled();
+    expect(cache.deleteByPrefix).not.toHaveBeenCalled();
+  });
+
   it("allows clearing payment method with null", async () => {
     repo.findById.mockResolvedValue(makePurchase());
     repo.update.mockResolvedValue(makePurchase({ payment_method: null }));
