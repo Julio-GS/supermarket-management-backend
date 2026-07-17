@@ -1,8 +1,9 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { randomUUID } from "crypto";
 import { ProductRepositoryPort } from "../../products/application/product.repository.port";
 import { Product } from "../../products/domain/product.entity";
 import { SaleRepositoryPort, SaleItemCreateData } from "./sale.repository.port";
+import { InventoryRepositoryPort } from "../../inventory/application/inventory.repository.port";
 import { IssueArcaInvoiceUseCase } from "./issue-arca-invoice.use-case";
 import {
   PromotionResolverService,
@@ -239,10 +240,23 @@ function resolveSplitTicketGroups(
 }
 
 @Injectable()
+/**
+ * Creates a sale with optional ARCA invoice issuance and promotion resolution.
+ *
+ * Stock deduction: after the sale is persisted, this use case iterates over
+ * catalog items whose product has `maneja_stock=true` and calls
+ * {@link InventoryRepositoryPort.adjustBalance} with a negative quantity
+ * and type `"sale"` using the sale ID as a reference. Ad-hoc (non-catalog)
+ * items and unmanaged products are skipped. Duplicate product lines are
+ * aggregated into a single adjustment per product before locking.
+ */
 export class CreateSaleUseCase {
+  private readonly logger = new Logger(CreateSaleUseCase.name);
+
   constructor(
     private readonly products: ProductRepositoryPort,
     private readonly sales: SaleRepositoryPort,
+    private readonly inventory: InventoryRepositoryPort,
     private readonly issueInvoice: IssueArcaInvoiceUseCase,
     private readonly promotionResolver: PromotionResolverService,
   ) {}
@@ -541,7 +555,7 @@ export class CreateSaleUseCase {
       invoiceResult = await this.issueInvoice.issue(invoiceItems);
     }
 
-    return this.sales.create({
+    const sale = await this.sales.create({
       user_id: input.user_id,
       items: saleItems,
       payment_methods: paymentMethods,
@@ -555,5 +569,36 @@ export class CreateSaleUseCase {
       pto_vta: invoiceResult?.pto_vta ?? null,
       invoice_requested_at: invoiceResult ? new Date() : null,
     });
+
+    // Deduct stock for managed catalog items (ad-hoc items are skipped)
+    const managedDeductions = new Map<string, number>();
+    for (let i = 0; i < input.items.length; i++) {
+      if (adHocIndices.has(i)) continue;
+      const product = productsById.get(input.items[i].product_id!);
+      if (!product || !product.maneja_stock) continue;
+      const current = managedDeductions.get(product.id) ?? 0;
+      managedDeductions.set(product.id, current + input.items[i].quantity);
+    }
+
+    // Deterministic lock order: sort product UUIDs before locking balances
+    const sortedProductIds = [...managedDeductions.keys()].sort();
+    for (const productId of sortedProductIds) {
+      const totalDeduction = managedDeductions.get(productId)!;
+      try {
+        await this.inventory.adjustBalance(
+          productId,
+          -totalDeduction,
+          "sale",
+          sale.id,
+        );
+      } catch (error) {
+        this.logger.error(
+          `Failed to deduct stock for product ${productId} after sale ${sale.id}; sale was persisted and will be returned`,
+          error instanceof Error ? error.stack : undefined,
+        );
+      }
+    }
+
+    return sale;
   }
 }

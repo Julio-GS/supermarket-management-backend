@@ -1,0 +1,52 @@
+meta {
+  name: 03 Adjust Stock In
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/stock/adjust
+  body: json
+  auth: bearer
+}
+
+headers {
+  Content-Type: application/json
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "product_id": "{{stockProductId}}",
+    "quantity": 10,
+    "reason": "Bruno stock in"
+  }
+}
+
+vars:pre-request {
+  baseUrl: http://localhost:3001/api/v1
+  stockProductId: 00000000-0000-0000-0000-000000000000
+}
+
+script:post-response {
+  if (res.body.id) {
+    bru.setVar("stockMovementId", res.body.id);
+  }
+  const current = Number(bru.getVar("expectedStock") || 0);
+  bru.setVar("expectedStock", String(current + 10));
+}
+
+tests {
+  test("status is 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+  
+  test("returns a positive stock movement", function() {
+    expect(res.body.product_id).to.equal(bru.getVar("stockProductId"));
+    expect(Number(res.body.quantity)).to.equal(10);
+    expect(res.body.reason).to.equal("Bruno stock in");
+  });
+}

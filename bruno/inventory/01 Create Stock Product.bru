@@ -1,0 +1,69 @@
+meta {
+  name: 01 Create Stock Product
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/products
+  body: json
+  auth: bearer
+}
+
+headers {
+  Content-Type: application/json
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "detalle": "{{stockProductName}}",
+    "costo_neto": "50.00",
+    "costo_final": "100.00",
+    "iva": "21.00",
+    "cambio_costo": "2024-01-01",
+    "cambio_precio": "2024-01-01",
+    "etiqueta": "bruno-inventory-test",
+    "facturable": true,
+    "maneja_stock": true,
+    "codigos": [
+      "{{stockBarcode}}"
+    ]
+  }
+}
+
+vars:pre-request {
+  baseUrl: http://localhost:3001/api/v1
+  stockProductName: Bruno Stock Product
+  stockBarcode: BRU-STOCK
+}
+
+script:pre-request {
+  const ts = Date.now();
+  bru.setVar("stockBarcode", "BRU-STOCK-" + ts);
+  bru.setVar("stockProductName", "Bruno Stock Product " + ts);
+  bru.setVar("expectedStock", "0");
+}
+
+script:post-response {
+  bru.setVar("stockProductId", res.body.id);
+  bru.setVar("expectedStock", String(res.body.stock_actual));
+}
+
+tests {
+  test("status is 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+  
+  test("captures a stock product id", function() {
+    expect(res.body.id).to.be.a("string");
+    expect(res.body.maneja_stock).to.equal(true);
+  });
+  
+  test("initial stock is zero", function() {
+    expect(res.body.stock_actual).to.equal(0);
+  });
+}

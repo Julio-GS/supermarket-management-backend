@@ -1,0 +1,43 @@
+meta {
+  name: 08 Adjust Non-Stock Product Should Fail
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{baseUrl}}/stock/adjust
+  body: json
+  auth: bearer
+}
+
+headers {
+  Content-Type: application/json
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "product_id": "{{nonStockProductId}}",
+    "quantity": 1,
+    "reason": "Bruno non-stock adjustment should fail"
+  }
+}
+
+vars:pre-request {
+  baseUrl: http://localhost:3001/api/v1
+  nonStockProductId: 00000000-0000-0000-0000-000000000000
+}
+
+tests {
+  test("stock adjustment is rejected", function() {
+    expect([400, 409, 422]).to.include(res.getStatus());
+  });
+  
+  test("returns an error response", function() {
+    expect(res.body).to.be.an("object");
+    expect(res.body.message || res.body.error).to.exist;
+  });
+}

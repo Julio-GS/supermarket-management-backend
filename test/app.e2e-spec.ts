@@ -1226,6 +1226,198 @@ describe("AppController (e2e)", () => {
     });
   });
 
+  // ─── Stock E2E ──────────────────────────────────────────────────
+
+  describe("Stock (e2e)", () => {
+    it("POST /sales deducts stock and GET /stock/:id reflects updated value", async () => {
+      // Create a stock-tracked product
+      const product = await request(app.getHttpServer())
+        .post("/api/v1/products")
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          detalle: "Stock Tracked Product",
+          costo_neto: "50.00",
+          costo_final: "60.50",
+          iva: "21.00",
+          cambio_costo: "2026-01-01",
+          cambio_precio: "2026-01-01",
+          etiqueta: "stock-test",
+          facturable: true,
+          maneja_stock: true,
+          codigos: ["STOCK-E2E-001"],
+        })
+        .expect(201);
+
+      // Stock should default to 0
+      expect(product.body.stock_actual).toBe(0);
+
+      // Manually adjust stock to set initial quantity
+      await request(app.getHttpServer())
+        .post("/api/v1/stock/adjust")
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          product_id: product.body.id,
+          quantity: 100,
+          reason: "E2E initial stock",
+        })
+        .expect(201);
+
+      // Verify stock after adjustment
+      const stockAfterAdjust = await request(app.getHttpServer())
+        .get(`/api/v1/stock/${product.body.id}`)
+        .set("Authorization", `Bearer ${token}`)
+        .expect(200);
+      expect(stockAfterAdjust.body.stock_actual).toBe(100);
+
+      // Create a sale deducting 3 units
+      const sale = await request(app.getHttpServer())
+        .post("/api/v1/sales")
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          items: [
+            {
+              product_id: product.body.id,
+              quantity: 3,
+            },
+          ],
+          payment_methods: [{ method: "cash", amount: "181.50" }],
+        })
+        .expect(201);
+
+      expect(sale.body.id).toBeDefined();
+
+      // Stock should have decreased by 3
+      const stockAfterSale = await request(app.getHttpServer())
+        .get(`/api/v1/stock/${product.body.id}`)
+        .set("Authorization", `Bearer ${token}`)
+        .expect(200);
+      expect(stockAfterSale.body.stock_actual).toBe(97);
+
+      // Product response should also include updated stock_actual
+      const productAfterSale = await request(app.getHttpServer())
+        .get(`/api/v1/products/${product.body.id}`)
+        .set("Authorization", `Bearer ${token}`)
+        .expect(200);
+      expect(productAfterSale.body.stock_actual).toBe(97);
+    });
+
+    it("GET /stock/:id returns null for non-stock product", async () => {
+      const product = await request(app.getHttpServer())
+        .post("/api/v1/products")
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          detalle: "Non-Stock Product",
+          costo_neto: "30.00",
+          costo_final: "36.30",
+          iva: "21.00",
+          cambio_costo: "2026-01-01",
+          cambio_precio: "2026-01-01",
+          etiqueta: "no-stock",
+          facturable: true,
+          maneja_stock: false,
+          codigos: ["NOSTOCK-001"],
+        })
+        .expect(201);
+
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/stock/${product.body.id}`)
+        .set("Authorization", `Bearer ${token}`)
+        .expect(200);
+
+      expect(res.body.stock_actual).toBeNull();
+    });
+
+    it("POST /stock/adjust rejects non-stock product", async () => {
+      const product = await request(app.getHttpServer())
+        .post("/api/v1/products")
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          detalle: "Another Non-Stock",
+          costo_neto: "20.00",
+          costo_final: "24.20",
+          iva: "21.00",
+          cambio_costo: "2026-01-01",
+          cambio_precio: "2026-01-01",
+          etiqueta: "no-stock2",
+          facturable: true,
+          maneja_stock: false,
+          codigos: ["NOSTOCK-002"],
+        })
+        .expect(201);
+
+      await request(app.getHttpServer())
+        .post("/api/v1/stock/adjust")
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          product_id: product.body.id,
+          quantity: 10,
+          reason: "should fail",
+        })
+        .expect(400);
+    });
+
+    it("product list includes stock_actual for tracked and null for non-tracked", async () => {
+      // Ensure at least two products exist with different maneja_stock values
+      const tracked = await request(app.getHttpServer())
+        .post("/api/v1/products")
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          detalle: "Tracked List",
+          costo_neto: "40.00",
+          costo_final: "48.40",
+          iva: "21.00",
+          cambio_costo: "2026-01-01",
+          cambio_precio: "2026-01-01",
+          etiqueta: "tracked-list",
+          facturable: true,
+          maneja_stock: true,
+          codigos: ["TRACKED-LIST-001"],
+        })
+        .expect(201);
+
+      // Set initial stock for the tracked item
+      await request(app.getHttpServer())
+        .post("/api/v1/stock/adjust")
+        .set("Authorization", `Bearer ${token}`)
+        .send({ product_id: tracked.body.id, quantity: 42, reason: "list test" })
+        .expect(201);
+
+      const untracked = await request(app.getHttpServer())
+        .post("/api/v1/products")
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          detalle: "Untracked List",
+          costo_neto: "10.00",
+          costo_final: "12.10",
+          iva: "21.00",
+          cambio_costo: "2026-01-01",
+          cambio_precio: "2026-01-01",
+          etiqueta: "untracked-list",
+          facturable: true,
+          maneja_stock: false,
+          codigos: ["UNTRACKED-LIST-001"],
+        })
+        .expect(201);
+
+      const list = await request(app.getHttpServer())
+        .get("/api/v1/products")
+        .set("Authorization", `Bearer ${token}`)
+        .expect(200);
+
+      const trackedInList = list.body.find(
+        (p: { id: string }) => p.id === tracked.body.id,
+      );
+      const untrackedInList = list.body.find(
+        (p: { id: string }) => p.id === untracked.body.id,
+      );
+
+      expect(trackedInList).toBeDefined();
+      expect(trackedInList.stock_actual).toBe(42);
+      expect(untrackedInList).toBeDefined();
+      expect(untrackedInList.stock_actual).toBeNull();
+    });
+  });
+
   // ─── Provider Purchase E2E ──────────────────────────────────────
 
   describe("Provider Purchases", () => {

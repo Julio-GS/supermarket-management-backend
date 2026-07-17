@@ -1,0 +1,67 @@
+meta {
+  name: 07 Create Non-Stock Product
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/products
+  body: json
+  auth: bearer
+}
+
+headers {
+  Content-Type: application/json
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "detalle": "{{nonStockProductName}}",
+    "costo_neto": "25.00",
+    "costo_final": "50.00",
+    "iva": "21.00",
+    "cambio_costo": "2024-01-01",
+    "cambio_precio": "2024-01-01",
+    "etiqueta": "bruno-inventory-test",
+    "facturable": true,
+    "maneja_stock": false,
+    "codigos": [
+      "{{nonStockBarcode}}"
+    ]
+  }
+}
+
+vars:pre-request {
+  baseUrl: http://localhost:3001/api/v1
+  nonStockProductName: Bruno Non-Stock Product
+  nonStockBarcode: BRU-NON-STOCK
+}
+
+script:pre-request {
+  const ts = Date.now();
+  bru.setVar("nonStockBarcode", "BRU-NON-STOCK-" + ts);
+  bru.setVar("nonStockProductName", "Bruno Non-Stock Product " + ts);
+}
+
+script:post-response {
+  bru.setVar("nonStockProductId", res.body.id);
+}
+
+tests {
+  test("status is 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+  
+  test("captures a non-stock product id", function() {
+    expect(res.body.id).to.be.a("string");
+    expect(res.body.maneja_stock).to.equal(false);
+  });
+  
+  test("non-stock product has null stock", function() {
+    expect(res.body.stock_actual).to.equal(null);
+  });
+}

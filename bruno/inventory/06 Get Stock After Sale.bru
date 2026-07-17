@@ -1,0 +1,35 @@
+meta {
+  name: 06 Get Stock After Sale
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseUrl}}/stock/{{stockProductId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+vars:pre-request {
+  baseUrl: http://localhost:3001/api/v1
+  stockProductId: 00000000-0000-0000-0000-000000000000
+}
+
+tests {
+  test("status is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+  
+  test("stock exists after the sale", function() {
+    expect(res.body.product_id).to.equal(bru.getVar("stockProductId"));
+    expect(res.body.stock_actual).to.be.a("number");
+  });
+  
+  test("stock matches expected flow balance", function() {
+    expect(res.body.stock_actual).to.equal(Number(bru.getVar("expectedStock")));
+  });
+}

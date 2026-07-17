@@ -12,6 +12,7 @@ import { ProductsModule } from "./modules/products/products.module";
 import { SalesModule } from "./modules/sales/sales.module";
 import { ReportsModule } from "./modules/reports/reports.module";
 import { PromotionsModule } from "./modules/promotions/promotions.module";
+import { InventoryModule } from "./modules/inventory/inventory.module";
 import { ReadCacheModule } from "./shared/cache/read-cache.module";
 
 @Module({
@@ -35,6 +36,7 @@ import { ReadCacheModule } from "./shared/cache/read-cache.module";
     SalesModule,
     ReportsModule,
     PromotionsModule,
+    InventoryModule,
   ],
 })
 export class AppModule {}

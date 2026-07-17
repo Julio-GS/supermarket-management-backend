@@ -1,6 +1,7 @@
 import { Product } from "../domain/product.entity";
 import { PricingMode } from "../domain/special-product-codes";
 import { Page, PaginationOptions } from "../../../shared/read-model/page";
+import { QueryRunner } from "typeorm";
 
 export interface ProductListOptions {
   search?: string;
@@ -39,7 +40,10 @@ export interface ProductUpdateInput {
 }
 
 export abstract class ProductRepositoryPort {
-  abstract create(input: ProductCreateInput): Promise<Product>;
+  abstract create(
+    input: ProductCreateInput,
+    runner?: QueryRunner,
+  ): Promise<Product>;
   abstract findAll(options?: ProductListOptions): Promise<Product[]>;
   abstract findPage(options: ProductReadOptions): Promise<Page<Product>>;
   abstract findById(id: string): Promise<Product | null>;
@@ -49,6 +53,7 @@ export abstract class ProductRepositoryPort {
   abstract update(
     id: string,
     input: ProductUpdateInput,
+    runner?: QueryRunner,
   ): Promise<Product | null>;
   abstract delete(id: string): Promise<void>;
   abstract existsAnyBarcode(

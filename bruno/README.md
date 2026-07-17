@@ -1,7 +1,7 @@
 # Supermarket MVP API — Bruno Collection
 
 This collection covers the main MVP flow of the NestJS backend:
-authentication, product CRUD, barcode conflict handling, sales with payment methods, split tickets, ARCA invoicing, promotions (product-specific and store-wide), and provider purchase reporting.
+authentication, product CRUD, barcode conflict handling, sales with payment methods, split tickets, ARCA invoicing, promotions (product-specific and store-wide), inventory/stock movements, stock deduction on sales, and provider purchase reporting.
 
 ## Requirements
 
@@ -44,6 +44,15 @@ bruno/
 │   ├── List Promotions.bru
 │   ├── Update Promotion.bru
 │   └── Disable Promotion.bru
+├── inventory/
+│   ├── 01 Create Stock Product.bru
+│   ├── 02 Get Stock.bru
+│   ├── 03 Adjust Stock In.bru
+│   ├── 04 Adjust Stock Out.bru
+│   ├── 05 Create Sale With Stock Deduction.bru
+│   ├── 06 Get Stock After Sale.bru
+│   ├── 07 Create Non-Stock Product.bru
+│   └── 08 Adjust Non-Stock Product Should Fail.bru
 ├── reports/
 │   ├── Get Business Report - Day.bru
 │   ├── Get Business Report - Week.bru
@@ -88,6 +97,7 @@ Run an entire folder:
 cd bruno
 bru run "auth" --env Local
 bru run "promotions" --env Local
+bru run "inventory" --env Local
 ```
 
 ## Running with the Bruno desktop app
@@ -104,7 +114,7 @@ bru run "promotions" --env Local
 |----------|---------------------------------|------------------------------------------|
 | `baseUrl`| `http://localhost:3000/api/v1`  | Base URL for all requests.               |
 
-Collection variables (`username`, `password`, `token`, `productId`, `saleId`, `splitTicketSaleId`, `promotionId`, `storePromotionId`, `promoSaleId`, `adHocSaleId`, `providerPurchaseId`, `cae`, `cbteNro`, barcodes) are generated and extracted at runtime by pre-request and post-response scripts.
+Collection variables (`username`, `password`, `token`, `productId`, `saleId`, `splitTicketSaleId`, `promotionId`, `storePromotionId`, `promoSaleId`, `adHocSaleId`, `stockProductId`, `stockMovementId`, `stockSaleId`, `nonStockProductId`, `expectedStock`, `providerPurchaseId`, `cae`, `cbteNro`, barcodes) are generated and extracted at runtime by pre-request and post-response scripts.
 
 ## Covered flows
 
@@ -139,20 +149,30 @@ Collection variables (`username`, `password`, `token`, `productId`, `saleId`, `s
 20. **Update Promotion** — changes the name, description, and discount to 25 %; verifies the update.
 21. **Disable Promotion** — soft-deletes the promotion (sets `enabled: false`); expects `204`.
 
+### Inventory
+22. **01 Create Stock Product** — creates a product with `maneja_stock: true`, captures `stockProductId`, and verifies `stock_actual: 0`.
+23. **02 Get Stock** — fetches `/stock/{stockProductId}` and verifies the `stock_actual` field is numeric or `null`.
+24. **03 Adjust Stock In** — posts a positive stock adjustment and captures `stockMovementId` when returned.
+25. **04 Adjust Stock Out** — posts a negative stock adjustment. Negative movements are valid.
+26. **05 Create Sale With Stock Deduction** — creates a sale for the stock-managed product and captures `stockSaleId`. The payment amount is intentionally dummy-friendly because the API does not validate it against the computed total.
+27. **06 Get Stock After Sale** — confirms the current stock matches the expected balance maintained by the flow.
+28. **07 Create Non-Stock Product** — creates a product with `maneja_stock: false` and verifies `stock_actual: null`.
+29. **08 Adjust Non-Stock Product Should Fail** — verifies stock adjustments are rejected for non-stock products.
+
 ### Reports
-22. **Get Business Report - Day** — fetches today's business report with payment method breakdown and top products.
-23. **Get Business Report - Week** — fetches the current week's business report.
-24. **Get Business Report - Month** — fetches the current month's business report with descending payment method sort verification.
-25. **Create Provider Purchase** — creates a provider purchase under `/reports/provider-purchases`; stores `providerPurchaseId`.
-26. **List Provider Purchases** — lists all provider purchases and verifies the created row is present.
-27. **Update Provider Purchase** — edits the created provider purchase and clears `payment_method` with `null`.
-28. **Get Provider Purchases Report - Day** — fetches today's provider purchase report and verifies aggregate fields plus the `unknown` bucket for cleared payment methods.
-29. **Get Provider Purchases Report - Week** — fetches the current week's provider purchase report.
-30. **Get Provider Purchases Report - Month** — fetches the current month's provider purchase report with descending payment method sort verification.
-31. **Delete Provider Purchase** — deletes the created provider purchase and expects `204`.
+30. **Get Business Report - Day** — fetches today's business report with payment method breakdown and top products.
+31. **Get Business Report - Week** — fetches the current week's business report.
+32. **Get Business Report - Month** — fetches the current month's business report with descending payment method sort verification.
+33. **Create Provider Purchase** — creates a provider purchase under `/reports/provider-purchases`; stores `providerPurchaseId`.
+34. **List Provider Purchases** — lists all provider purchases and verifies the created row is present.
+35. **Update Provider Purchase** — edits the created provider purchase and clears `payment_method` with `null`.
+36. **Get Provider Purchases Report - Day** — fetches today's provider purchase report and verifies aggregate fields plus the `unknown` bucket for cleared payment methods.
+37. **Get Provider Purchases Report - Week** — fetches the current week's provider purchase report.
+38. **Get Provider Purchases Report - Month** — fetches the current month's provider purchase report with descending payment method sort verification.
+39. **Delete Provider Purchase** — deletes the created provider purchase and expects `204`.
 
 ### Misc
-32. **Protected Without Token** — calls a protected route with no token and expects `401`.
+40. **Protected Without Token** — calls a protected route with no token and expects `401`.
 
 ## Promotions flow (manual)
 
@@ -193,6 +213,19 @@ Notes:
 - The ad-hoc item `product_id` is a synthetic backend value for sale persistence. Treat it as opaque and do not use it as a catalog lookup key.
 - Ad-hoc items can receive store-wide promotions, but effective product-scoped promotions are filtered out of `applied_promotions`.
 - The request intentionally uses a dummy payment allocation amount because the API does not validate `payment_methods[].amount` against the computed total.
+
+## Inventory flow (manual)
+
+Run these after `Login` has populated `token`. The requests are numbered to support a straight manual run:
+
+1. **Run `01 Create Stock Product`** — creates a unique stock-managed product, captures `stockProductId`, and initializes `expectedStock` to `0`.
+2. **Run `02 Get Stock`** — confirms `/stock/{stockProductId}` returns the current stock shape.
+3. **Run `03 Adjust Stock In`** then **`04 Adjust Stock Out`** — validates positive and negative manual movements and updates `expectedStock`.
+4. **Run `05 Create Sale With Stock Deduction`** — creates a sale for one unit of the stock product. The backend should deduct stock but should not require the payment allocation to match the computed total.
+5. **Run `06 Get Stock After Sale`** — verifies the remaining `stock_actual` matches the flow balance.
+6. **Run `07 Create Non-Stock Product`** then **`08 Adjust Non-Stock Product Should Fail`** — confirms products with `maneja_stock: false` expose `stock_actual: null` and reject stock adjustments.
+
+> Negative stock is allowed by the API, so the stock-out request validates movement creation rather than enforcing a minimum balance.
 
 ## Provider purchases flow
 

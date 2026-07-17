@@ -10,6 +10,8 @@ import {
   ValidationError,
 } from "../../../shared/errors/domain.error";
 import { Product } from "../domain/product.entity";
+import { InventoryRepositoryPort } from "../../inventory/application/inventory.repository.port";
+import { TransactionRunnerPort } from "../../../shared/database/transaction-runner.port";
 
 function buildProduct(overrides: Partial<Product> = {}): Product {
   const p = new Product();
@@ -36,6 +38,8 @@ describe("Product CRUD Guards", () => {
     let useCase: CreateProductUseCase;
     let products: jest.Mocked<ProductRepositoryPort>;
     let cache: jest.Mocked<ReadCachePort>;
+    let inventory: Pick<InventoryRepositoryPort, "createBalance">;
+    const transactionRunner = { run: jest.fn((work) => work({})) };
 
     beforeEach(async () => {
       products = {
@@ -51,12 +55,15 @@ describe("Product CRUD Guards", () => {
         existsAnyBarcode: jest.fn(),
       };
       cache = { getOrSet: jest.fn(), deleteByPrefix: jest.fn() };
+      inventory = { createBalance: jest.fn() };
 
       const module: TestingModule = await Test.createTestingModule({
         providers: [
           CreateProductUseCase,
           { provide: ProductRepositoryPort, useValue: products },
           { provide: ReadCachePort, useValue: cache },
+          { provide: InventoryRepositoryPort, useValue: inventory },
+          { provide: TransactionRunnerPort, useValue: transactionRunner },
         ],
       }).compile();
 
@@ -122,6 +129,20 @@ describe("Product CRUD Guards", () => {
 
       expect(result.codigos).toEqual(["ABC123"]);
       expect(products.create).toHaveBeenCalled();
+      expect(inventory.createBalance).not.toHaveBeenCalled();
+    });
+
+    it("initializes a balance for a stock-managed product", async () => {
+      products.existsAnyBarcode.mockResolvedValue(false);
+      products.create.mockResolvedValue(buildProduct({ maneja_stock: true }));
+
+      await useCase.execute({
+        detalle: "Tracked Product", cambio_costo: "2024-01-01", cambio_precio: "2024-01-01",
+        etiqueta: "test", facturable: true, maneja_stock: true, codigos: ["TRACKED"],
+      });
+
+      expect(inventory.createBalance).toHaveBeenCalledWith("prod-1", 0, {});
+      expect(transactionRunner.run).toHaveBeenCalled();
     });
   });
 
@@ -129,6 +150,8 @@ describe("Product CRUD Guards", () => {
     let useCase: UpdateProductUseCase;
     let products: jest.Mocked<ProductRepositoryPort>;
     let cache: jest.Mocked<ReadCachePort>;
+    let inventory: Pick<InventoryRepositoryPort, "findBalance" | "createBalance">;
+    const transactionRunner = { run: jest.fn((work) => work({})) };
 
     beforeEach(async () => {
       products = {
@@ -144,12 +167,15 @@ describe("Product CRUD Guards", () => {
         existsAnyBarcode: jest.fn(),
       };
       cache = { getOrSet: jest.fn(), deleteByPrefix: jest.fn() };
+      inventory = { findBalance: jest.fn(), createBalance: jest.fn() };
 
       const module: TestingModule = await Test.createTestingModule({
         providers: [
           UpdateProductUseCase,
           { provide: ProductRepositoryPort, useValue: products },
           { provide: ReadCachePort, useValue: cache },
+          { provide: InventoryRepositoryPort, useValue: inventory },
+          { provide: TransactionRunnerPort, useValue: transactionRunner },
         ],
       }).compile();
 
@@ -196,6 +222,16 @@ describe("Product CRUD Guards", () => {
         useCase.execute(normalProduct.id, { codigos: ["3"] }),
       ).rejects.toBeInstanceOf(ValidationError);
       expect(products.update).not.toHaveBeenCalled();
+    });
+
+    it("initializes a balance when stock tracking is enabled", async () => {
+      const product = buildProduct({ maneja_stock: false });
+      products.findById.mockResolvedValue(product);
+      products.update.mockResolvedValue(buildProduct({ maneja_stock: true }));
+      await useCase.execute(product.id, { maneja_stock: true });
+
+      expect(inventory.createBalance).toHaveBeenCalledWith(product.id, 0, {});
+      expect(transactionRunner.run).toHaveBeenCalled();
     });
   });
 

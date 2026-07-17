@@ -1,7 +1,9 @@
+import { Logger } from "@nestjs/common";
 import { Test, TestingModule } from "@nestjs/testing";
 import { CreateSaleInput, CreateSaleUseCase } from "./create-sale.use-case";
 import { ProductRepositoryPort } from "../../products/application/product.repository.port";
 import { SaleRepositoryPort } from "./sale.repository.port";
+import { InventoryRepositoryPort } from "../../inventory/application/inventory.repository.port";
 import { IssueArcaInvoiceUseCase } from "./issue-arca-invoice.use-case";
 import { PromotionResolverService } from "../../promotions/application/promotion-resolver.service";
 import {
@@ -68,6 +70,7 @@ describe("CreateSaleUseCase", () => {
   let useCase: CreateSaleUseCase;
   let products: jest.Mocked<ProductRepositoryPort>;
   let sales: jest.Mocked<SaleRepositoryPort>;
+  let inventory: jest.Mocked<Pick<InventoryRepositoryPort, "adjustBalance">>;
   let issueInvoice: { issue: jest.Mock };
   let promotionResolver: { resolveForSaleItems: jest.Mock };
 
@@ -90,6 +93,9 @@ describe("CreateSaleUseCase", () => {
       findPageByUser: jest.fn(),
       findByIdForUser: jest.fn(),
     };
+    inventory = {
+      adjustBalance: jest.fn(),
+    };
     issueInvoice = {
       issue: jest.fn(),
     };
@@ -102,6 +108,7 @@ describe("CreateSaleUseCase", () => {
         CreateSaleUseCase,
         { provide: ProductRepositoryPort, useValue: products },
         { provide: SaleRepositoryPort, useValue: sales },
+        { provide: InventoryRepositoryPort, useValue: inventory },
         { provide: IssueArcaInvoiceUseCase, useValue: issueInvoice },
         { provide: PromotionResolverService, useValue: promotionResolver },
       ],
@@ -1360,6 +1367,346 @@ describe("CreateSaleUseCase", () => {
 
       // findByIdsForSale should not be called when there are only ad-hoc items
       expect(products.findByIdsForSale).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("stock deduction on sale", () => {
+    it("deducts stock from managed catalog items after sale persistence", async () => {
+      const trackedProduct = buildProduct({
+        id: "tracked-1",
+        maneja_stock: true,
+      });
+      products.findByIdsForSale.mockResolvedValue([trackedProduct]);
+      sales.create.mockResolvedValue(buildSale({ id: "sale-1", total: "121.00" }));
+
+      await useCase.execute({
+        user_id: "user-id",
+        items: [{ product_id: trackedProduct.id, quantity: 1 }],
+        payment_methods: [{ method: "cash", amount: "121.00" }],
+      });
+
+      expect(inventory.adjustBalance).toHaveBeenCalledWith(
+        trackedProduct.id,
+        -1,
+        "sale",
+        "sale-1",
+      );
+    });
+
+    it("skips stock deduction for non-stock products", async () => {
+      const nonStockProduct = buildProduct({
+        id: "no-stock-1",
+        maneja_stock: false,
+      });
+      products.findByIdsForSale.mockResolvedValue([nonStockProduct]);
+      sales.create.mockResolvedValue(buildSale({ total: "121.00" }));
+
+      await useCase.execute({
+        user_id: "user-id",
+        items: [{ product_id: nonStockProduct.id, quantity: 1 }],
+        payment_methods: [{ method: "cash", amount: "121.00" }],
+      });
+
+      expect(inventory.adjustBalance).not.toHaveBeenCalled();
+    });
+
+    it("deducts only tracked products in a mixed cart", async () => {
+      const tracked = buildProduct({ id: "tracked-1", maneja_stock: true });
+      const untracked = buildProduct({ id: "no-stock-1", maneja_stock: false });
+      products.findByIdsForSale.mockResolvedValue([tracked, untracked]);
+      sales.create.mockResolvedValue(
+        buildSale({
+          id: "sale-mixed",
+          total: "242.00",
+          items: [
+            {
+              id: "item-1",
+              sale_id: "sale-mixed",
+              product_id: "tracked-1",
+              quantity: 1,
+              unit_price: "121.00",
+              subtotal: "121.00",
+              discount_amount: "0.00",
+              applied_promotions: [],
+            },
+            {
+              id: "item-2",
+              sale_id: "sale-mixed",
+              product_id: "no-stock-1",
+              quantity: 1,
+              unit_price: "121.00",
+              subtotal: "121.00",
+              discount_amount: "0.00",
+              applied_promotions: [],
+            },
+          ],
+        }),
+      );
+
+      await useCase.execute({
+        user_id: "user-id",
+        items: [
+          { product_id: tracked.id, quantity: 1 },
+          { product_id: untracked.id, quantity: 1 },
+        ],
+        payment_methods: [{ method: "cash", amount: "242.00" }],
+      });
+
+      expect(inventory.adjustBalance).toHaveBeenCalledTimes(1);
+      expect(inventory.adjustBalance).toHaveBeenCalledWith(
+        tracked.id,
+        -1,
+        "sale",
+        "sale-mixed",
+      );
+    });
+
+    it("allows negative stock — sale succeeds and deduction is recorded", async () => {
+      const tracked = buildProduct({ id: "tracked-1", maneja_stock: true });
+      products.findByIdsForSale.mockResolvedValue([tracked]);
+      sales.create.mockResolvedValue(
+        buildSale({ id: "sale-neg", total: "605.00" }),
+      );
+
+      const result = await useCase.execute({
+        user_id: "user-id",
+        items: [{ product_id: tracked.id, quantity: 5 }],
+        payment_methods: [{ method: "cash", amount: "605.00" }],
+      });
+
+      expect(result.total).toBe("605.00");
+      expect(inventory.adjustBalance).toHaveBeenCalledWith(
+        tracked.id,
+        -5,
+        "sale",
+        "sale-neg",
+      );
+    });
+
+    it("skips stock deduction for ad-hoc (non-catalog) sale items", async () => {
+      const tracked = buildProduct({ id: "tracked-1", maneja_stock: true });
+      products.findByIdsForSale.mockResolvedValue([tracked]);
+      promotionResolver.resolveForSaleItems.mockResolvedValue([null, null]);
+      sales.create.mockResolvedValue(
+        buildSale({
+          id: "sale-adhoc-mix",
+          total: "621.00",
+          items: [
+            {
+              id: "item-cat",
+              sale_id: "sale-adhoc-mix",
+              product_id: "tracked-1",
+              quantity: 1,
+              unit_price: "121.00",
+              subtotal: "121.00",
+              discount_amount: "0.00",
+              applied_promotions: [],
+            },
+            {
+              id: "item-adhoc",
+              sale_id: "sale-adhoc-mix",
+              product_id: expect.any(String) as unknown as string,
+              name: "Servicio",
+              iva: "21.00",
+              quantity: 2,
+              unit_price: "250.00",
+              subtotal: "500.00",
+              discount_amount: "0.00",
+              applied_promotions: [],
+            },
+          ],
+        }),
+      );
+
+      await useCase.execute({
+        user_id: "user-id",
+        items: [
+          { product_id: tracked.id, quantity: 1 },
+          { name: "Servicio", unit_price: "250.00", quantity: 2 },
+        ],
+        payment_methods: [{ method: "cash", amount: "621.00" }],
+      });
+
+      // Only the catalog item should trigger stock deduction; ad-hoc items are skipped
+      expect(inventory.adjustBalance).toHaveBeenCalledTimes(1);
+      expect(inventory.adjustBalance).toHaveBeenCalledWith(
+        tracked.id,
+        -1,
+        "sale",
+        "sale-adhoc-mix",
+      );
+    });
+
+    it("does not call inventory at all when no managed catalog items exist", async () => {
+      const untracked = buildProduct({ id: "no-stock-1", maneja_stock: false });
+      products.findByIdsForSale.mockResolvedValue([untracked]);
+      sales.create.mockResolvedValue(buildSale({ total: "121.00" }));
+
+      await useCase.execute({
+        user_id: "user-id",
+        items: [{ product_id: untracked.id, quantity: 1 }],
+        payment_methods: [{ method: "cash", amount: "121.00" }],
+      });
+
+      expect(inventory.adjustBalance).not.toHaveBeenCalled();
+    });
+
+    it("returns the persisted sale and logs when stock deduction fails", async () => {
+      const tracked = buildProduct({ id: "tracked-1", maneja_stock: true });
+      const sale = buildSale({ id: "sale-stock-failure", total: "121.00" });
+      const stockError = new Error("inventory unavailable");
+      const loggerErrorSpy = jest
+        .spyOn(Logger.prototype, "error")
+        .mockImplementation(jest.fn());
+      products.findByIdsForSale.mockResolvedValue([tracked]);
+      sales.create.mockResolvedValue(sale);
+      inventory.adjustBalance.mockRejectedValue(stockError);
+
+      const result = await useCase.execute({
+        user_id: "user-id",
+        items: [{ product_id: tracked.id, quantity: 1 }],
+        payment_methods: [{ method: "cash", amount: "121.00" }],
+      });
+
+      expect(result).toBe(sale);
+      expect(inventory.adjustBalance).toHaveBeenCalledWith(
+        tracked.id,
+        -1,
+        "sale",
+        "sale-stock-failure",
+      );
+      expect(loggerErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Failed to deduct stock for product tracked-1 after sale sale-stock-failure"),
+        stockError.stack,
+      );
+    });
+
+    it("continues attempting later managed products when one stock deduction fails", async () => {
+      const trackedA = buildProduct({ id: "tracked-a", maneja_stock: true });
+      const trackedB = buildProduct({ id: "tracked-b", maneja_stock: true });
+      const sale = buildSale({ id: "sale-partial-stock", total: "363.00" });
+      const stockError = new Error("first adjustment failed");
+      const loggerErrorSpy = jest
+        .spyOn(Logger.prototype, "error")
+        .mockImplementation(jest.fn());
+      products.findByIdsForSale.mockResolvedValue([trackedA, trackedB]);
+      sales.create.mockResolvedValue(sale);
+      inventory.adjustBalance
+        .mockRejectedValueOnce(stockError)
+        .mockResolvedValueOnce(undefined as never);
+
+      const result = await useCase.execute({
+        user_id: "user-id",
+        items: [
+          { product_id: trackedA.id, quantity: 2 },
+          { product_id: trackedB.id, quantity: 1 },
+        ],
+        payment_methods: [{ method: "cash", amount: "363.00" }],
+      });
+
+      expect(result).toBe(sale);
+      expect(inventory.adjustBalance).toHaveBeenCalledTimes(2);
+      expect(inventory.adjustBalance).toHaveBeenNthCalledWith(
+        1,
+        trackedA.id,
+        -2,
+        "sale",
+        "sale-partial-stock",
+      );
+      expect(inventory.adjustBalance).toHaveBeenNthCalledWith(
+        2,
+        trackedB.id,
+        -1,
+        "sale",
+        "sale-partial-stock",
+      );
+      expect(loggerErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Failed to deduct stock for product tracked-a after sale sale-partial-stock"),
+        stockError.stack,
+      );
+    });
+
+    it("deducts multiple managed items in a single sale", async () => {
+      const trackedA = buildProduct({ id: "tracked-a", maneja_stock: true });
+      const trackedB = buildProduct({ id: "tracked-b", maneja_stock: true });
+      products.findByIdsForSale.mockResolvedValue([trackedA, trackedB]);
+      sales.create.mockResolvedValue(
+        buildSale({
+          id: "sale-multi",
+          total: "363.00",
+          items: [
+            {
+              id: "item-a",
+              sale_id: "sale-multi",
+              product_id: "tracked-a",
+              quantity: 2,
+              unit_price: "121.00",
+              subtotal: "242.00",
+              discount_amount: "0.00",
+              applied_promotions: [],
+            },
+            {
+              id: "item-b",
+              sale_id: "sale-multi",
+              product_id: "tracked-b",
+              quantity: 1,
+              unit_price: "121.00",
+              subtotal: "121.00",
+              discount_amount: "0.00",
+              applied_promotions: [],
+            },
+          ],
+        }),
+      );
+
+      await useCase.execute({
+        user_id: "user-id",
+        items: [
+          { product_id: trackedA.id, quantity: 2 },
+          { product_id: trackedB.id, quantity: 1 },
+        ],
+        payment_methods: [{ method: "cash", amount: "363.00" }],
+      });
+
+      expect(inventory.adjustBalance).toHaveBeenCalledTimes(2);
+      expect(inventory.adjustBalance).toHaveBeenCalledWith(
+        trackedA.id,
+        -2,
+        "sale",
+        "sale-multi",
+      );
+      expect(inventory.adjustBalance).toHaveBeenCalledWith(
+        trackedB.id,
+        -1,
+        "sale",
+        "sale-multi",
+      );
+    });
+
+    it("aggregates repeated managed product lines into a single deduction", async () => {
+      const tracked = buildProduct({ id: "tracked-1", maneja_stock: true });
+      products.findByIdsForSale.mockResolvedValue([tracked]);
+      sales.create.mockResolvedValue(
+        buildSale({ id: "sale-agg", total: "242.00" }),
+      );
+
+      await useCase.execute({
+        user_id: "user-id",
+        items: [
+          { product_id: tracked.id, quantity: 1 },
+          { product_id: tracked.id, quantity: 1 },
+        ],
+        payment_methods: [{ method: "cash", amount: "242.00" }],
+      });
+
+      // Same product appears twice in the input; should be aggregated into one adjustment
+      expect(inventory.adjustBalance).toHaveBeenCalledTimes(1);
+      expect(inventory.adjustBalance).toHaveBeenCalledWith(
+        tracked.id,
+        -2,
+        "sale",
+        "sale-agg",
+      );
     });
   });
 });

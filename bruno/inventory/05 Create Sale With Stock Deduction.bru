@@ -1,0 +1,60 @@
+meta {
+  name: 05 Create Sale With Stock Deduction
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/sales
+  body: json
+  auth: bearer
+}
+
+headers {
+  Content-Type: application/json
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "items": [
+      {
+        "product_id": "{{stockProductId}}",
+        "quantity": 1
+      }
+    ],
+    "payment_methods": [
+      { "method": "cash", "amount": "1" }
+    ],
+    "invoice_requested": false
+  }
+}
+
+vars:pre-request {
+  baseUrl: http://localhost:3001/api/v1
+  stockProductId: 00000000-0000-0000-0000-000000000000
+}
+
+script:post-response {
+  bru.setVar("stockSaleId", res.body.id);
+  const current = Number(bru.getVar("expectedStock") || 0);
+  bru.setVar("expectedStock", String(current - 1));
+}
+
+tests {
+  test("status is 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+  
+  test("captures the stock sale id", function() {
+    expect(res.body.id).to.be.a("string");
+  });
+  
+  test("sale contains the stock product", function() {
+    expect(res.body.items).to.be.an("array");
+    expect(res.body.items.some((item) => item.product_id === bru.getVar("stockProductId"))).to.equal(true);
+  });
+}

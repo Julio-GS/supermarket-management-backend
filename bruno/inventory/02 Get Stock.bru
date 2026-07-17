@@ -1,0 +1,32 @@
+meta {
+  name: 02 Get Stock
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/stock/{{stockProductId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+vars:pre-request {
+  baseUrl: http://localhost:3001/api/v1
+  stockProductId: 00000000-0000-0000-0000-000000000000
+}
+
+tests {
+  test("status is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+  
+  test("returns stock for the selected product", function() {
+    expect(res.body.product_id).to.equal(bru.getVar("stockProductId"));
+    expect(res.body).to.have.property("stock_actual");
+    expect(res.body.stock_actual === null || typeof res.body.stock_actual === "number").to.equal(true);
+  });
+}

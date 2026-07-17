@@ -16,7 +16,7 @@ auth:bearer {
 
 vars:pre-request {
   baseUrl: http://localhost:3001/api/v1
-  productId: b54175cb-5b45-42ce-a5ea-8a9f3a650190
+  productId: 9055ac39-6c28-4c2a-8cf0-33d9774eebc4
 }
 
 tests {
@@ -35,7 +35,7 @@ tests {
       expect(p).to.have.property("type");
     }
   });
-
+  
   test("product includes store_promotions field", function() {
     expect(res.body).to.have.property("store_promotions");
     if (res.body.store_promotions && res.body.store_promotions.length > 0) {

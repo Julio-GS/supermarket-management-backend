@@ -14,6 +14,7 @@ import {
 } from "@nestjs/common";
 import { JwtAuthGuard } from "../../auth/infrastructure/jwt-auth.guard";
 import { PromotionRepositoryPort } from "../../promotions/application/promotion.repository.port";
+import { InventoryRepositoryPort } from "../../inventory/application/inventory.repository.port";
 import {
   CreateProductDto,
   UpdateProductDto,
@@ -37,6 +38,7 @@ import { argentinaNow } from "../../promotions/application/promotion-reference-d
 
 function toProductResponse(
   product: Product,
+  stockActual: number | null,
   promotions?: ProductPromotionSummaryDto[] | null,
   storePromotions?: ProductPromotionSummaryDto[] | null,
 ): ProductResponseDto {
@@ -54,11 +56,28 @@ function toProductResponse(
     codigos: product.codigos,
     pricing_mode: product.pricing_mode,
     is_protected: product.is_protected,
+    stock_actual: stockActual,
     promotions: promotions ?? null,
     store_promotions: storePromotions ?? null,
     created_at: product.created_at,
     updated_at: product.updated_at,
   };
+}
+
+/**
+ * Resolves the stock_actual value for a single product.
+ * Returns null for non-stock products, balance value for tracked products,
+ * or 0 for tracked products without a balance row yet.
+ */
+async function resolveStockActual(
+  product: Product,
+  inventoryRepo: InventoryRepositoryPort,
+): Promise<number | null> {
+  if (!product.maneja_stock) {
+    return null;
+  }
+  const balance = await inventoryRepo.findBalance(product.id);
+  return balance?.stock_actual ?? 0;
 }
 
 @Controller("products")
@@ -72,12 +91,14 @@ export class ProductsController {
     private readonly deleteProduct: DeleteProductUseCase,
     private readonly getProductByCode: GetProductByCodeUseCase,
     private readonly promotionRepo: PromotionRepositoryPort,
+    private readonly inventoryRepo: InventoryRepositoryPort,
   ) {}
 
   @Post()
   async create(@Body() dto: CreateProductDto): Promise<ProductResponseDto> {
     const product = await this.createProduct.execute(dto);
-    return toProductResponse(product);
+    const stockActual = await resolveStockActual(product, this.inventoryRepo);
+    return toProductResponse(product, stockActual);
   }
 
   @Get()
@@ -91,24 +112,32 @@ export class ProductsController {
         normalizePagination(query, { search: query.search }),
       );
       const productIds = page.data.map((p) => p.id);
+      const balances = await this.inventoryRepo.findBalancesByIds(productIds);
       const { promotionsById, storePromotions } =
         await this.loadPromotionsMap(productIds, now);
       const storeList =
         storePromotions.length > 0 ? storePromotions : null;
-      const mapped = page.data.map((p) =>
-        toProductResponse(p, promotionsById.get(p.id), storeList),
-      );
+      const mapped = page.data.map((p) => {
+        const stockActual = p.maneja_stock
+          ? balances.get(p.id)?.stock_actual ?? 0
+          : null;
+        return toProductResponse(p, stockActual, promotionsById.get(p.id), storeList);
+      });
       return { data: mapped, meta: page.meta } as Page<ProductResponseDto>;
     }
     const products = await this.listProducts.execute({ search: query.search });
     const productIds = products.map((p) => p.id);
+    const balances = await this.inventoryRepo.findBalancesByIds(productIds);
     const { promotionsById, storePromotions } =
       await this.loadPromotionsMap(productIds, now);
     const storeList =
       storePromotions.length > 0 ? storePromotions : null;
-    return products.map((p) =>
-      toProductResponse(p, promotionsById.get(p.id), storeList),
-    );
+    return products.map((p) => {
+      const stockActual = p.maneja_stock
+        ? balances.get(p.id)?.stock_actual ?? 0
+        : null;
+      return toProductResponse(p, stockActual, promotionsById.get(p.id), storeList);
+    });
   }
 
   @Get("code/:code")
@@ -118,7 +147,8 @@ export class ProductsController {
       await this.loadPromotionsMap([product.id], argentinaNow());
     const storeList =
       storePromotions.length > 0 ? storePromotions : null;
-    return toProductResponse(product, promotionsById.get(product.id), storeList);
+    const stockActual = await resolveStockActual(product, this.inventoryRepo);
+    return toProductResponse(product, stockActual, promotionsById.get(product.id), storeList);
   }
 
   @Get(":id")
@@ -130,7 +160,8 @@ export class ProductsController {
       await this.loadPromotionsMap([id], argentinaNow());
     const storeList =
       storePromotions.length > 0 ? storePromotions : null;
-    return toProductResponse(product, promotionsById.get(id), storeList);
+    const stockActual = await resolveStockActual(product, this.inventoryRepo);
+    return toProductResponse(product, stockActual, promotionsById.get(id), storeList);
   }
 
   @Put(":id")
@@ -143,7 +174,8 @@ export class ProductsController {
       await this.loadPromotionsMap([id], argentinaNow());
     const storeList =
       storePromotions.length > 0 ? storePromotions : null;
-    return toProductResponse(product, promotionsById.get(id), storeList);
+    const stockActual = await resolveStockActual(product, this.inventoryRepo);
+    return toProductResponse(product, stockActual, promotionsById.get(id), storeList);
   }
 
   @Delete(":id")

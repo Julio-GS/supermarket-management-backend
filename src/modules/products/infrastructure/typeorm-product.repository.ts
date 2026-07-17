@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { In, Repository, SelectQueryBuilder } from "typeorm";
+import { In, QueryRunner, Repository, SelectQueryBuilder } from "typeorm";
 import {
   ProductRepositoryPort,
   ProductCreateInput,
@@ -37,12 +37,13 @@ export class TypeOrmProductRepository extends ProductRepositoryPort {
     super();
   }
 
-  async create(input: ProductCreateInput): Promise<Product> {
-    const entity = this.productRepo.create({
+  async create(input: ProductCreateInput, runner?: QueryRunner): Promise<Product> {
+    const productRepo = runner?.manager.getRepository(ProductEntity) ?? this.productRepo;
+    const entity = productRepo.create({
       ...input,
       barcodes: input.codigos.map((codigo) => ({ codigo })),
     });
-    const saved = await this.productRepo.save(entity);
+    const saved = await productRepo.save(entity);
     return this.toDomain(saved);
   }
 
@@ -102,14 +103,20 @@ export class TypeOrmProductRepository extends ProductRepositoryPort {
     return this.findByBarcode(code);
   }
 
-  async update(id: string, input: ProductUpdateInput): Promise<Product | null> {
-    const existing = await this.productRepo.findOne({
+  async update(
+    id: string,
+    input: ProductUpdateInput,
+    runner?: QueryRunner,
+  ): Promise<Product | null> {
+    const productRepo = runner?.manager.getRepository(ProductEntity) ?? this.productRepo;
+    const barcodeRepo = runner?.manager.getRepository(ProductBarcodeEntity) ?? this.barcodeRepo;
+    const existing = await productRepo.findOne({
       where: { id },
       relations: ["barcodes"],
     });
     if (!existing) return null;
 
-    this.productRepo.merge(existing, {
+    productRepo.merge(existing, {
       detalle: input.detalle,
       costo_neto: input.costo_neto,
       costo_final: input.costo_final,
@@ -124,13 +131,13 @@ export class TypeOrmProductRepository extends ProductRepositoryPort {
     });
 
     if (input.codigos !== undefined) {
-      await this.barcodeRepo.delete({ product_id: id });
+      await barcodeRepo.delete({ product_id: id });
       existing.barcodes = input.codigos.map((codigo) =>
-        this.barcodeRepo.create({ codigo, product_id: id }),
+        barcodeRepo.create({ codigo, product_id: id }),
       );
     }
 
-    const saved = await this.productRepo.save(existing);
+    const saved = await productRepo.save(existing);
     return this.toDomain(saved);
   }
 

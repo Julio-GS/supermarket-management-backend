@@ -12,12 +12,16 @@ import {
 import { ReadCachePort } from "../../../shared/cache/read-cache.port";
 import { PRODUCT_READ_CACHE_POLICY } from "../../../shared/cache/cache-policy";
 import { containsReservedCode } from "../domain/special-product-codes";
+import { InventoryRepositoryPort } from "../../inventory/application/inventory.repository.port";
+import { TransactionRunnerPort } from "../../../shared/database/transaction-runner.port";
 
 @Injectable()
 export class UpdateProductUseCase {
   constructor(
     private readonly products: ProductRepositoryPort,
     private readonly cache: ReadCachePort,
+    private readonly inventory: InventoryRepositoryPort,
+    private readonly transactionRunner: TransactionRunnerPort,
   ) {}
 
   async execute(id: string, input: ProductUpdateInput): Promise<Product> {
@@ -49,10 +53,14 @@ export class UpdateProductUseCase {
       }
     }
 
-    const updated = await this.products.update(id, input);
-    if (!updated) {
-      throw new NotFoundError("Product not found");
-    }
+    const updated = await this.transactionRunner.run(async (runner) => {
+      const product = await this.products.update(id, input, runner);
+      if (!product) throw new NotFoundError("Product not found");
+      if (!existing.maneja_stock && product.maneja_stock) {
+        await this.inventory.createBalance(id, 0, runner);
+      }
+      return product;
+    });
     await this.cache.deleteByPrefix(PRODUCT_READ_CACHE_POLICY.prefix);
     return updated;
   }

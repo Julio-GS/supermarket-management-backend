@@ -2,6 +2,7 @@ import { Test, TestingModule } from "@nestjs/testing";
 import { ProductsController } from "./products.controller";
 import { ProductResponseDto } from "./product.dto";
 import { PromotionRepositoryPort } from "../../promotions/application/promotion.repository.port";
+import { InventoryRepositoryPort } from "../../inventory/application/inventory.repository.port";
 import { CreateProductUseCase } from "../application/create-product.use-case";
 import { ListProductsUseCase } from "../application/list-products.use-case";
 import { GetProductUseCase } from "../application/get-product.use-case";
@@ -10,6 +11,7 @@ import { DeleteProductUseCase } from "../application/delete-product.use-case";
 import { GetProductByCodeUseCase } from "../application/get-product-by-code.use-case";
 import { Product } from "../domain/product.entity";
 import { Promotion } from "../../promotions/domain/promotion.entity";
+import { InventoryBalance } from "../../inventory/domain/inventory.entity";
 import { NotFoundError } from "../../../shared/errors/domain.error";
 
 function buildProduct(overrides: Partial<Product> = {}): Product {
@@ -55,6 +57,9 @@ describe("ProductsController", () => {
   let promoRepo: jest.Mocked<
     Pick<PromotionRepositoryPort, "findActiveByProductIds">
   >;
+  let inventoryRepo: jest.Mocked<
+    Pick<InventoryRepositoryPort, "findBalance" | "findBalancesByIds">
+  >;
   let listProducts: jest.Mocked<
     Pick<ListProductsUseCase, "execute" | "executePage">
   >;
@@ -64,6 +69,7 @@ describe("ProductsController", () => {
 
   beforeEach(async () => {
     promoRepo = { findActiveByProductIds: jest.fn() };
+    inventoryRepo = { findBalance: jest.fn(), findBalancesByIds: jest.fn() };
     listProducts = { execute: jest.fn(), executePage: jest.fn() };
     getProduct = { execute: jest.fn() };
     getProductByCode = { execute: jest.fn() };
@@ -99,6 +105,10 @@ describe("ProductsController", () => {
         {
           provide: PromotionRepositoryPort,
           useValue: promoRepo,
+        },
+        {
+          provide: InventoryRepositoryPort,
+          useValue: inventoryRepo,
         },
       ],
     }).compile();
@@ -325,6 +335,74 @@ describe("ProductsController", () => {
 
       expect(result.store_promotions).toHaveLength(1);
       expect(result.store_promotions![0].id).toBe("promo-store");
+    });
+  });
+
+  describe("stock_actual enrichment", () => {
+    it("includes stock_actual numeric for stock-tracked product in get-by-id", async () => {
+      const product = buildProduct({ id: "prod-1", maneja_stock: true });
+      getProduct.execute.mockResolvedValue(product);
+      inventoryRepo.findBalance.mockResolvedValue({
+        product_id: "prod-1",
+        stock_actual: 42,
+        updated_at: new Date(),
+      } as InventoryBalance);
+      promoRepo.findActiveByProductIds.mockResolvedValue([]);
+
+      const result = await controller.get("prod-1");
+
+      expect(result.stock_actual).toBe(42);
+      expect(inventoryRepo.findBalance).toHaveBeenCalledWith("prod-1");
+    });
+
+    it("returns stock_actual 0 for stock-tracked product with no balance row", async () => {
+      const product = buildProduct({ id: "prod-2", maneja_stock: true });
+      getProduct.execute.mockResolvedValue(product);
+      inventoryRepo.findBalance.mockResolvedValue(null);
+      promoRepo.findActiveByProductIds.mockResolvedValue([]);
+
+      const result = await controller.get("prod-2");
+
+      expect(result.stock_actual).toBe(0);
+    });
+
+    it("returns stock_actual null for non-stock product", async () => {
+      const product = buildProduct({ id: "prod-3", maneja_stock: false });
+      getProduct.execute.mockResolvedValue(product);
+      promoRepo.findActiveByProductIds.mockResolvedValue([]);
+
+      const result = await controller.get("prod-3");
+
+      expect(result.stock_actual).toBeNull();
+      expect(inventoryRepo.findBalance).not.toHaveBeenCalled();
+    });
+
+    it("batch-enriches stock_actual in product list", async () => {
+      const productA = buildProduct({ id: "prod-a", maneja_stock: true });
+      const productB = buildProduct({ id: "prod-b", maneja_stock: false });
+      listProducts.execute.mockResolvedValue([productA, productB]);
+      inventoryRepo.findBalancesByIds.mockResolvedValue(
+        new Map([
+          [
+            "prod-a",
+            {
+              product_id: "prod-a",
+              stock_actual: 150,
+              updated_at: new Date(),
+            } as InventoryBalance,
+          ],
+        ]),
+      );
+      promoRepo.findActiveByProductIds.mockResolvedValue([]);
+
+      const result = (await controller.list({})) as ProductResponseDto[];
+
+      expect(result[0].stock_actual).toBe(150);
+      expect(result[1].stock_actual).toBeNull();
+      expect(inventoryRepo.findBalancesByIds).toHaveBeenCalledWith([
+        "prod-a",
+        "prod-b",
+      ]);
     });
   });
 });

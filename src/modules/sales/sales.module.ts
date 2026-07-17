@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { ProductsModule } from "../products/products.module";
 import { PromotionsModule } from "../promotions/promotions.module";
+import { InventoryModule } from "../inventory/inventory.module";
 import { SalesController } from "./presentation/sales.controller";
 import { SaleRepositoryPort } from "./application/sale.repository.port";
 import { TypeOrmSaleRepository } from "./infrastructure/typeorm-sale.repository";
@@ -27,6 +28,7 @@ import { ReadCacheModule } from "../../shared/cache/read-cache.module";
     ]),
     ProductsModule,
     PromotionsModule,
+    InventoryModule,
     ReadCacheModule,
   ],
   controllers: [SalesController],

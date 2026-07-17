@@ -11,6 +11,7 @@ import { AddMissingPromotionColumns1801000000000 } from "./migrations/1801000000
 import { AddSpecialProductCodes1802000000000 } from "./migrations/1802000000000-AddSpecialProductCodes";
 import { AddProviderPurchases1803000000000 } from "./migrations/1803000000000-AddProviderPurchases";
 import { AddAdhocSaleItems1804000000000 } from "./migrations/1804000000000-AddAdhocSaleItems";
+import { AddInventoryControl1805000000000 } from "./migrations/1805000000000-AddInventoryControl";
 
 export default new DataSource({
   type: "postgres",
@@ -31,6 +32,7 @@ export default new DataSource({
     AddSpecialProductCodes1802000000000,
     AddProviderPurchases1803000000000,
     AddAdhocSaleItems1804000000000,
+    AddInventoryControl1805000000000,
   ],
   migrationsRun: false,
   synchronize: false,

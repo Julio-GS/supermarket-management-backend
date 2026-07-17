@@ -129,6 +129,7 @@ export class ProductResponseDto {
   codigos!: string[];
   pricing_mode!: string;
   is_protected!: boolean;
+  stock_actual?: number | null;
   promotions?: ProductPromotionSummaryDto[] | null;
   store_promotions?: ProductPromotionSummaryDto[] | null;
   created_at!: Date;
