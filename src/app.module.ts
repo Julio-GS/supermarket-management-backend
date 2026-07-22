@@ -14,6 +14,7 @@ import { ReportsModule } from "./modules/reports/reports.module";
 import { PromotionsModule } from "./modules/promotions/promotions.module";
 import { InventoryModule } from "./modules/inventory/inventory.module";
 import { ReadCacheModule } from "./shared/cache/read-cache.module";
+import { SyncModule } from "./modules/sync/sync.module";
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { ReadCacheModule } from "./shared/cache/read-cache.module";
     ReportsModule,
     PromotionsModule,
     InventoryModule,
+    SyncModule,
   ],
 })
 export class AppModule {}

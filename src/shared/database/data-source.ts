@@ -12,6 +12,8 @@ import { AddSpecialProductCodes1802000000000 } from "./migrations/1802000000000-
 import { AddProviderPurchases1803000000000 } from "./migrations/1803000000000-AddProviderPurchases";
 import { AddAdhocSaleItems1804000000000 } from "./migrations/1804000000000-AddAdhocSaleItems";
 import { AddInventoryControl1805000000000 } from "./migrations/1805000000000-AddInventoryControl";
+import { AddSyncIdempotency1806000000000 } from "./migrations/1806000000000-AddSyncIdempotency";
+import { AddSyncTombstones1807000000000 } from "./migrations/1807000000000-AddSyncTombstones";
 
 export default new DataSource({
   type: "postgres",
@@ -33,6 +35,8 @@ export default new DataSource({
     AddProviderPurchases1803000000000,
     AddAdhocSaleItems1804000000000,
     AddInventoryControl1805000000000,
+    AddSyncIdempotency1806000000000,
+        AddSyncTombstones1807000000000,
   ],
   migrationsRun: false,
   synchronize: false,

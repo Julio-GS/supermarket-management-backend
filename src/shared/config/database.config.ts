@@ -10,6 +10,8 @@ import { AddPromotionsAndSaleDiscounts1800000000000 } from "../database/migratio
 import { AddSpecialProductCodes1802000000000 } from "../database/migrations/1802000000000-AddSpecialProductCodes";
 import { AddProviderPurchases1803000000000 } from "../database/migrations/1803000000000-AddProviderPurchases";
 import { AddAdhocSaleItems1804000000000 } from "../database/migrations/1804000000000-AddAdhocSaleItems";
+import { AddSyncIdempotency1806000000000 } from "../database/migrations/1806000000000-AddSyncIdempotency";
+import { AddSyncTombstones1807000000000 } from "../database/migrations/1807000000000-AddSyncTombstones";
 
 export const databaseConfig = registerAs(
   "database",
@@ -33,6 +35,8 @@ export const databaseConfig = registerAs(
       AddSpecialProductCodes1802000000000,
       AddProviderPurchases1803000000000,
       AddAdhocSaleItems1804000000000,
+      AddSyncIdempotency1806000000000,
+          AddSyncTombstones1807000000000,
     ],
     migrationsRun: process.env.NODE_ENV !== "test",
   }),

@@ -36,5 +36,6 @@ import { ReadCacheModule } from "../../shared/cache/read-cache.module";
     DeleteProviderPurchaseUseCase,
     GetProviderPurchaseReportUseCase,
   ],
+  exports: [ProviderPurchaseRepositoryPort],
 })
 export class ReportsModule {}

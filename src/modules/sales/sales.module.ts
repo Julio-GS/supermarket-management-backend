@@ -32,6 +32,7 @@ import { ReadCacheModule } from "../../shared/cache/read-cache.module";
     ReadCacheModule,
   ],
   controllers: [SalesController],
+  exports: [SaleRepositoryPort],
   providers: [
     {
       provide: SaleRepositoryPort,
