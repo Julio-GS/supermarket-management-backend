@@ -217,8 +217,8 @@ export class PullUseCase {
     // Tombstones — emit deletion changes for physically deleted entities
     // -------------------------------------------------------------------
     const tombstoneWhere = parsed.lastId
-      ? `(deleted_at > @cursorTime OR (deleted_at = @cursorTime AND entity_id > @lastId))`
-      : `deleted_at >= @cursorTime`;
+      ? `(deleted_at > :cursorTime OR (deleted_at = :cursorTime AND entity_id > :lastId))`
+      : `deleted_at >= :cursorTime`;
 
     const tombstones = await this.tombstoneRepo
       .createQueryBuilder("t")
