@@ -9,6 +9,7 @@ import {
   PromotionResolverService,
 } from "../../promotions/application/promotion-resolver.service";
 import {
+  InvoiceStatus,
   PAYMENT_METHODS,
   PaymentMethod,
   PaymentMethodAllocation,
@@ -491,6 +492,7 @@ export class CreateSaleUseCase {
       } else if (isManual) {
         // Manual product: subtotal = line_total, no discount, no promotions
         const subtotal = Money.toString(unitPrice);
+        const manualProductIva = productsById.get(resItem.productId)?.iva ?? null;
         saleItems.push({
           product_id: resItem.productId,
           quantity: 1,
@@ -500,6 +502,7 @@ export class CreateSaleUseCase {
           applied_promotions: [],
           applied_promotion_id: null,
           applied_promotion_type: null,
+          ...(invoiceRequested && manualProductIva ? { iva: manualProductIva } : {}),
         });
         total = Money.add(total, unitPrice);
       } else {
@@ -517,6 +520,10 @@ export class CreateSaleUseCase {
 
         const discountedSubtotal = Money.subtract(grossSubtotal, discountAmount);
 
+        // Snapshot product IVA for invoice-requested catalog items so fiscal retry
+        // can reconstruct the same invoice basis from persisted sale data.
+        const productIva = productsById.get(resItem.productId)?.iva ?? null;
+
         saleItems.push({
           product_id: resItem.productId,
           quantity: resItem.quantity,
@@ -526,6 +533,7 @@ export class CreateSaleUseCase {
           applied_promotions: resolved?.applied_promotions ?? [],
           applied_promotion_id: appliedPromotionId,
           applied_promotion_type: appliedPromotionType,
+          ...(invoiceRequested && productIva ? { iva: productIva } : {}),
         });
 
         total = Money.add(total, discountedSubtotal);
@@ -552,8 +560,24 @@ export class CreateSaleUseCase {
           iva_rate: product?.iva ?? "0",
         };
       });
-      invoiceResult = await this.issueInvoice.issue(invoiceItems);
+
+      try {
+        invoiceResult = await this.issueInvoice.issue(invoiceItems);
+      } catch (error) {
+        this.logger.error(
+          `ARCA invoice issuance failed; checkout will complete without fiscal invoice`,
+          error instanceof Error ? error.stack : undefined,
+        );
+        // invoiceResult remains null — sale persists with 'failed' status
+      }
     }
+
+    const invoiceStatus: InvoiceStatus = invoiceResult
+      ? "issued"
+      : invoiceRequested
+        ? "failed"
+        : "none";
+    const invoiceRequestedAt = invoiceRequested ? new Date() : null;
 
     const sale = await this.sales.create({
       user_id: input.user_id,
@@ -561,13 +585,13 @@ export class CreateSaleUseCase {
       payment_methods: paymentMethods,
       split_ticket_groups: splitTicketGroups,
       total: Money.toString(total),
-      invoice_status: invoiceResult ? "issued" : "none",
+      invoice_status: invoiceStatus,
       cae: invoiceResult?.cae ?? null,
       cae_vto: invoiceResult?.cae_vto ?? null,
       cbte_nro: invoiceResult?.cbte_nro ?? null,
       cbte_tipo: invoiceResult?.cbte_tipo ?? null,
       pto_vta: invoiceResult?.pto_vta ?? null,
-      invoice_requested_at: invoiceResult ? new Date() : null,
+      invoice_requested_at: invoiceRequestedAt,
     });
 
     // Deduct stock for managed catalog items (ad-hoc items are skipped)

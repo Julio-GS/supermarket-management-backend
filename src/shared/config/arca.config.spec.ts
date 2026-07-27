@@ -229,6 +229,24 @@ describe("arcaConfig", () => {
     }
   });
 
+  it("rejects ARCA_PRODUCTION=true combined with ARCA_MOCK=true at startup", async () => {
+    process.env.ARCA_ENABLED = "true";
+    process.env.ARCA_MOCK = "true";
+    process.env.ARCA_PRODUCTION = "true";
+    process.env.ARCA_CUIT = "20111111112";
+    process.env.ARCA_PTO_VTA = "1";
+
+    await expect(
+      Test.createTestingModule({
+        imports: [
+          ConfigModule.forRoot({ load: [arcaConfig], ignoreEnvFile: true }),
+        ],
+      }).compile(),
+    ).rejects.toThrow(
+      /mock.*production|production.*mock|ARCA.*production.*mock|mock fiscal invoices.*production/i,
+    );
+  });
+
   it("exposes ticketPath and useHttpsAgent from environment", async () => {
     process.env.ARCA_ENABLED = "false";
     process.env.ARCA_TICKET_PATH = "./custom/tickets";

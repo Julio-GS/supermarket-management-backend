@@ -1,3 +1,4 @@
+import { Logger } from "@nestjs/common";
 import { Test, TestingModule } from "@nestjs/testing";
 import { ConfigService } from "@nestjs/config";
 import { Arca } from "@arcasdk/core";
@@ -180,6 +181,59 @@ describe("ArcaInvoiceAdapter", () => {
     await expect(adapter.createFacturaBConsumidorFinal(input)).rejects.toThrow(
       "ARCA invoice was not accepted",
     );
+  });
+
+  it("logs sanitized error metadata without PEM secrets on SDK failure", async () => {
+    const pemCert =
+      "-----BEGIN CERTIFICATE-----\nMIIBkQ==\n-----END CERTIFICATE-----";
+    const pemKey =
+      "-----BEGIN PRIVATE KEY-----\nMIIEvQ==\n-----END PRIVATE KEY-----";
+
+    configService.getOrThrow.mockReturnValue({
+      ...buildConfig(true),
+      cert: pemCert,
+      key: pemKey,
+    });
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        ArcaInvoiceAdapter,
+        { provide: ConfigService, useValue: configService },
+      ],
+    }).compile();
+
+    const adapterWithSecrets = module.get(ArcaInvoiceAdapter);
+
+    const sdkError = new Error("SOAP fault");
+    (sdkError as any).cause = "Connection refused";
+    (sdkError as any).response = { body: "<soap:Envelope>...fault...</soap:Envelope>" };
+    createNextVoucher.mockRejectedValue(sdkError);
+
+    const logErrorSpy = jest
+      .spyOn(Logger.prototype, "error")
+      .mockImplementation(jest.fn());
+
+    const input: ArcaVoucherInput = {
+      total: "121.00",
+      imp_neto: "100.00",
+      imp_iva: "21.00",
+      iva_buckets: [{ id: 5, base_imp: "100.00", importe: "21.00" }],
+    };
+
+    await expect(
+      adapterWithSecrets.createFacturaBConsumidorFinal(input),
+    ).rejects.toThrow("SOAP fault");
+
+    // Verify error was logged
+    expect(logErrorSpy).toHaveBeenCalled();
+
+    // Verify the log message does not include raw PEM content
+    const logCall = logErrorSpy.mock.calls[0];
+    const logMessage = typeof logCall[0] === "string" ? logCall[0] : JSON.stringify(logCall);
+    expect(logMessage).not.toContain("MIIBkQ==");
+    expect(logMessage).not.toContain("MIIEvQ==");
+
+    logErrorSpy.mockRestore();
   });
 
   it("throws when ARCA is not enabled", async () => {

@@ -188,6 +188,12 @@ export const arcaConfig = registerAs("arca", () => {
     validateEnabledConfig({ cuit, pto_vta, cert, key, mock });
   }
 
+  if (production && mock) {
+    throw new Error(
+      "ARCA_PRODUCTION=true and ARCA_MOCK=true are mutually exclusive: mock fiscal invoices are not valid for production billing",
+    );
+  }
+
   logCredentialDiagnostics({ cert, key, ticketPath });
 
   return {

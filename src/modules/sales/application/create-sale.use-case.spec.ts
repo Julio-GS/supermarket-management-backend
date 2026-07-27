@@ -548,21 +548,204 @@ describe("CreateSaleUseCase", () => {
     expect(sales.create).not.toHaveBeenCalled();
   });
 
-  it("propagates ARCA failures and does not persist the sale", async () => {
+  it("completes sale with invoice_status='failed' when ARCA fails", async () => {
     const product = buildProduct();
     products.findByIdsForSale.mockResolvedValue([product]);
     issueInvoice.issue.mockRejectedValue(new Error("ARCA timeout"));
-
-    await expect(
-      useCase.execute({
-        user_id: "user-id",
-        items: [{ product_id: product.id, quantity: 1 }],
-        invoice_requested: true,
-        payment_methods: [{ method: "cash", amount: "121.00" }],
+    sales.create.mockResolvedValue(
+      buildSale({
+        invoice_status: "failed",
+        cae: null,
+        cae_vto: null,
+        cbte_nro: null,
+        cbte_tipo: null,
+        pto_vta: null,
+        invoice_requested_at: new Date("2025-01-01T12:00:00Z"),
       }),
-    ).rejects.toThrow("ARCA timeout");
+    );
 
-    expect(sales.create).not.toHaveBeenCalled();
+    const result = await useCase.execute({
+      user_id: "user-id",
+      items: [{ product_id: product.id, quantity: 1 }],
+      invoice_requested: true,
+      payment_methods: [{ method: "cash", amount: "121.00" }],
+    });
+
+    expect(result.invoice_status).toBe("failed");
+    expect(result.invoice_requested_at).toBeTruthy();
+    expect(result.cae).toBeNull();
+    expect(result.cae_vto).toBeNull();
+    expect(result.cbte_nro).toBeNull();
+    expect(result.cbte_tipo).toBeNull();
+    expect(result.pto_vta).toBeNull();
+    expect(sales.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        invoice_status: "failed",
+        cae: null,
+        cae_vto: null,
+        cbte_nro: null,
+        cbte_tipo: null,
+        pto_vta: null,
+        invoice_requested_at: expect.any(Date),
+      }),
+    );
+  });
+
+  it("persists invoice_requested_at and null fiscal fields on ARCA failure", async () => {
+    const product = buildProduct();
+    products.findByIdsForSale.mockResolvedValue([product]);
+    issueInvoice.issue.mockRejectedValue(new Error("ARCA SOAP error"));
+    sales.create.mockResolvedValue(
+      buildSale({
+        invoice_status: "failed",
+        invoice_requested_at: new Date(),
+      }),
+    );
+
+    await useCase.execute({
+      user_id: "user-id",
+      items: [{ product_id: product.id, quantity: 1 }],
+      invoice_requested: true,
+      payment_methods: [{ method: "cash", amount: "121.00" }],
+    });
+
+    expect(sales.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        invoice_status: "failed",
+        invoice_requested_at: expect.any(Date),
+      }),
+    );
+  });
+
+  it("logs ARCA failure without propagating the error to checkout", async () => {
+    const product = buildProduct();
+    products.findByIdsForSale.mockResolvedValue([product]);
+    issueInvoice.issue.mockRejectedValue(new Error("ARCA network error"));
+    const loggerErrorSpy = jest
+      .spyOn(Logger.prototype, "error")
+      .mockImplementation(jest.fn());
+    sales.create.mockResolvedValue(
+      buildSale({ invoice_status: "failed" }),
+    );
+
+    const result = await useCase.execute({
+      user_id: "user-id",
+      items: [{ product_id: product.id, quantity: 1 }],
+      invoice_requested: true,
+      payment_methods: [{ method: "cash", amount: "121.00" }],
+    });
+
+    expect(result.invoice_status).toBe("failed");
+    expect(loggerErrorSpy).toHaveBeenCalled();
+
+    loggerErrorSpy.mockRestore();
+  });
+
+  it("persists sale-time IVA on invoice-requested catalog items", async () => {
+    const product = buildProduct({ iva: "21.00" });
+    products.findByIdsForSale.mockResolvedValue([product]);
+    issueInvoice.issue.mockResolvedValue({
+      cae: "74154876254185",
+      cae_vto: "20240111",
+      cbte_nro: 1,
+      cbte_tipo: 6,
+      pto_vta: 1,
+    });
+    sales.create.mockResolvedValue(
+      buildSale({ invoice_status: "issued", cae: "74154876254185" }),
+    );
+
+    await useCase.execute({
+      user_id: "user-id",
+      items: [{ product_id: product.id, quantity: 1 }],
+      invoice_requested: true,
+      payment_methods: [{ method: "cash", amount: "121.00" }],
+    });
+
+    expect(sales.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        items: expect.arrayContaining([
+          expect.objectContaining({
+            iva: "21.00",
+          }),
+        ]),
+      }),
+    );
+  });
+
+  it("persists sale-time IVA on invoice-requested ad-hoc items", async () => {
+    products.findByIdsForSale.mockResolvedValue([]);
+    promotionResolver.resolveForSaleItems.mockResolvedValue([null]);
+    issueInvoice.issue.mockResolvedValue({
+      cae: "74154876254185",
+      cae_vto: "20240111",
+      cbte_nro: 1,
+      cbte_tipo: 6,
+      pto_vta: 1,
+    });
+    sales.create.mockResolvedValue(
+      buildSale({
+        invoice_status: "issued",
+        cae: "74154876254185",
+        items: [
+          {
+            id: "item-adhoc",
+            sale_id: "sale-id",
+            product_id: "synthetic-uuid",
+            name: "Servicio",
+            iva: "21.00",
+            quantity: 1,
+            unit_price: "200.00",
+            subtotal: "200.00",
+            discount_amount: "0.00",
+            applied_promotions: [],
+          } as any,
+        ],
+      }),
+    );
+
+    await useCase.execute({
+      user_id: "user-id",
+      items: [{ name: "Servicio", unit_price: "200.00", quantity: 1 }],
+      invoice_requested: true,
+      payment_methods: [{ method: "cash", amount: "200.00" }],
+    });
+
+    expect(sales.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        items: expect.arrayContaining([
+          expect.objectContaining({
+            iva: "21.00",
+          }),
+        ]),
+      }),
+    );
+  });
+
+  it("persists sale-time IVA on invoice-requested items even when ARCA fails", async () => {
+    const product = buildProduct({ iva: "21.00" });
+    products.findByIdsForSale.mockResolvedValue([product]);
+    issueInvoice.issue.mockRejectedValue(new Error("ARCA timeout"));
+    sales.create.mockResolvedValue(
+      buildSale({ invoice_status: "failed" }),
+    );
+
+    await useCase.execute({
+      user_id: "user-id",
+      items: [{ product_id: product.id, quantity: 1 }],
+      invoice_requested: true,
+      payment_methods: [{ method: "cash", amount: "121.00" }],
+    });
+
+    expect(sales.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        items: expect.arrayContaining([
+          expect.objectContaining({
+            iva: "21.00",
+          }),
+        ]),
+      }),
+    );
   });
 
   it("loads repeated sale products in one batch before processing items", async () => {
