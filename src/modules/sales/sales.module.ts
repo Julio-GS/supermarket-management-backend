@@ -14,8 +14,11 @@ import { CreateSaleUseCase } from "./application/create-sale.use-case";
 import { ListSalesUseCase } from "./application/list-sales.use-case";
 import { GetSaleUseCase } from "./application/get-sale.use-case";
 import { IssueArcaInvoiceUseCase } from "./application/issue-arca-invoice.use-case";
+import { RetryArcaInvoiceUseCase } from "./application/retry-arca-invoice.use-case";
 import { ArcaInvoicePort } from "./application/arca-invoice.port";
 import { ArcaInvoiceAdapter } from "./infrastructure/arca-invoice.adapter";
+import { ArcaAlertPort } from "./application/arca-alert.port";
+import { ArcaLoggerAlertAdapter } from "./infrastructure/arca-logger-alert.adapter";
 import { ReadCacheModule } from "../../shared/cache/read-cache.module";
 
 @Module({
@@ -42,10 +45,15 @@ import { ReadCacheModule } from "../../shared/cache/read-cache.module";
       provide: ArcaInvoicePort,
       useClass: ArcaInvoiceAdapter,
     },
+    {
+      provide: ArcaAlertPort,
+      useClass: ArcaLoggerAlertAdapter,
+    },
     CreateSaleUseCase,
     ListSalesUseCase,
     GetSaleUseCase,
     IssueArcaInvoiceUseCase,
+    RetryArcaInvoiceUseCase,
   ],
 })
 export class SalesModule {}

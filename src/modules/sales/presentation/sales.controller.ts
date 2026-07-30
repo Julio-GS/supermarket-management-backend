@@ -15,10 +15,12 @@ import {
   CreateSaleDto,
   SaleResponseDto,
   SaleItemResponseDto,
+  SaleRetryResponseDto,
 } from "./sale.dto";
 import { CreateSaleUseCase } from "../application/create-sale.use-case";
 import { ListSalesUseCase } from "../application/list-sales.use-case";
 import { GetSaleUseCase } from "../application/get-sale.use-case";
+import { RetryArcaInvoiceUseCase } from "../application/retry-arca-invoice.use-case";
 import { Sale } from "../domain/sale.entity";
 import {
   hasPaginationQuery,
@@ -73,6 +75,7 @@ export class SalesController {
     private readonly createSale: CreateSaleUseCase,
     private readonly listSales: ListSalesUseCase,
     private readonly getSale: GetSaleUseCase,
+    private readonly retryArcaInvoice: RetryArcaInvoiceUseCase,
   ) {}
 
   @Post()
@@ -113,5 +116,21 @@ export class SalesController {
   ): Promise<SaleResponseDto> {
     const sale = await this.getSale.execute(id, req.user.sub);
     return toSaleResponse(sale);
+  }
+
+  @Post(":id/fiscal-invoice/retry")
+  async retryFiscalInvoice(
+    @Param("id", ParseUUIDPipe) id: string,
+    @Req() req: AuthenticatedRequest,
+  ): Promise<SaleRetryResponseDto> {
+    const result = await this.retryArcaInvoice.execute({
+      sale_id: id,
+      user_id: req.user.sub,
+    });
+    return {
+      sale: toSaleResponse(result.sale),
+      retry_status: result.retry_status,
+      message: result.message,
+    };
   }
 }

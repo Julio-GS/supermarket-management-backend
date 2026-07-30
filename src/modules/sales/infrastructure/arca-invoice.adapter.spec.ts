@@ -155,6 +155,41 @@ describe("ArcaInvoiceAdapter", () => {
     });
   });
 
+  it("sends Consumidor Final IVA condition for Factura B vouchers", async () => {
+    createNextVoucher.mockResolvedValue({
+      cae: "74154876254185",
+      caeFchVto: "20240111",
+      response: {
+        FeDetResp: {
+          FECAEDetResponse: [
+            {
+              Resultado: "A",
+              CbteDesde: 42,
+            },
+          ],
+        },
+      },
+    });
+
+    const input: ArcaVoucherInput = {
+      total: "121.00",
+      imp_neto: "100.00",
+      imp_iva: "21.00",
+      iva_buckets: [{ id: 5, base_imp: "100.00", importe: "21.00" }],
+    };
+
+    await adapter.createFacturaBConsumidorFinal(input);
+
+    expect(createNextVoucher).toHaveBeenCalledWith(
+      expect.objectContaining({
+        CbteTipo: 6,
+        DocTipo: 99,
+        DocNro: 0,
+        CondicionIVAReceptorId: 5,
+      }),
+    );
+  });
+
   it("rejects non-accepted ARCA responses", async () => {
     createNextVoucher.mockResolvedValue({
       cae: "",

@@ -92,6 +92,9 @@ describe("CreateSaleUseCase", () => {
       findByUser: jest.fn(),
       findPageByUser: jest.fn(),
       findByIdForUser: jest.fn(),
+          findByIdForUserForUpdate: jest.fn(),
+          markInvoiceIssued: jest.fn(),
+          transitionInvoiceStatus: jest.fn(),
     };
     inventory = {
       adjustBalance: jest.fn(),

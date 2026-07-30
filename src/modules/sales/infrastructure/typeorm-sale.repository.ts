@@ -1,13 +1,15 @@
 import { randomUUID } from "crypto";
 import { Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository } from "typeorm";
+import { Repository, EntityManager } from "typeorm";
 import {
   SaleRepositoryPort,
   SaleCreateInput,
   SaleReadOptions,
 } from "../application/sale.repository.port";
+import { ArcaInvoiceResult } from "../application/arca-invoice.port";
 import {
+  InvoiceStatus,
   PAYMENT_METHODS,
   PaymentMethod,
   PaymentMethodAllocation,
@@ -304,6 +306,121 @@ export class TypeOrmSaleRepository extends SaleRepositoryPort {
       relations: ["items", "payment_methods", "split_ticket_allocations"],
     });
     return entity ? this.toDomain(entity) : null;
+  }
+
+  async findByIdForUserForUpdate(
+    id: string,
+    user_id: string,
+    manager?: EntityManager,
+  ): Promise<Sale | null> {
+    const repo = manager
+      ? manager.getRepository(SaleEntity)
+      : this.saleRepo;
+
+    const entity = await repo.findOne({
+      where: { id, user_id },
+      lock: { mode: "pessimistic_write" },
+      relations: ["items", "payment_methods", "split_ticket_allocations"],
+    });
+
+    return entity ? this.toDomain(entity) : null;
+  }
+
+  async markInvoiceIssued(
+    id: string,
+    user_id: string,
+    invoiceResult: ArcaInvoiceResult,
+    manager?: EntityManager,
+  ): Promise<Sale> {
+    const repo = manager
+      ? manager.getRepository(SaleEntity)
+      : this.saleRepo;
+
+    await repo.update(
+      { id, user_id },
+      {
+        invoice_status: "issued",
+        cae: invoiceResult.cae,
+        cae_vto: invoiceResult.cae_vto,
+        cbte_nro: invoiceResult.cbte_nro,
+        cbte_tipo: invoiceResult.cbte_tipo,
+        pto_vta: invoiceResult.pto_vta,
+      },
+    );
+
+    // Re-read full entity to return the updated domain object
+    const updated = await repo.findOne({
+      where: { id, user_id },
+      relations: ["items", "payment_methods", "split_ticket_allocations"],
+    });
+
+    if (!updated) {
+      throw new Error(
+        `Sale ${id} not found after marking invoice as issued`,
+      );
+    }
+
+    return this.toDomain(updated);
+  }
+
+  async transitionInvoiceStatus(
+    id: string,
+    user_id: string,
+    expectedStatus: InvoiceStatus,
+    nextStatus: InvoiceStatus,
+    fiscalFields?: {
+      cae: string;
+      cae_vto: string;
+      cbte_nro: number;
+      cbte_tipo: number;
+      pto_vta: number;
+    },
+    manager?: EntityManager,
+  ): Promise<Sale | null> {
+    const repo = manager
+      ? manager.getRepository(SaleEntity)
+      : this.saleRepo;
+
+    // Lock + check current status
+    const entity = await repo.findOne({
+      where: { id, user_id },
+      lock: { mode: "pessimistic_write" },
+    });
+
+    if (!entity || entity.invoice_status !== expectedStatus) {
+      return null;
+    }
+
+    // Build update data
+    const updateData: Record<string, unknown> = {
+      invoice_status: nextStatus,
+    };
+
+    if (fiscalFields) {
+      updateData.cae = fiscalFields.cae;
+      updateData.cae_vto = fiscalFields.cae_vto;
+      updateData.cbte_nro = fiscalFields.cbte_nro;
+      updateData.cbte_tipo = fiscalFields.cbte_tipo;
+      updateData.pto_vta = fiscalFields.pto_vta;
+    } else {
+      // When not setting fiscal fields (e.g. failed→issuing, issuing→failed,
+      // issuing→ambiguous), explicitly null them out to keep the row consistent.
+      updateData.cae = null;
+      updateData.cae_vto = null;
+      updateData.cbte_nro = null;
+      updateData.cbte_tipo = null;
+      updateData.pto_vta = null;
+    }
+
+    await repo.update({ id, user_id }, updateData as any);
+
+    // Re-read full entity to return updated domain object
+    const updated = await repo.findOne({
+      where: { id, user_id },
+      relations: ["items", "payment_methods", "split_ticket_allocations"],
+    });
+
+    return updated ? this.toDomain(updated) : null;
   }
 
   private baseUserQuery(user_id: string) {

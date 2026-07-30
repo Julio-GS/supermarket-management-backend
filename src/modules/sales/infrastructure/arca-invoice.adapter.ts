@@ -111,7 +111,7 @@ export class ArcaInvoiceAdapter extends ArcaInvoicePort {
         Importe: parseFloat(bucket.importe),
       })),
       // V1 only supports Consumidor Final / Factura B.
-      CondicionIVAReceptorId: 2,
+      CondicionIVAReceptorId: 5,
     };
 
     this.logger.debug(

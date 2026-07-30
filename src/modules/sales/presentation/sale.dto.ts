@@ -192,6 +192,12 @@ export class SaleSplitTicketGroupResponseDto {
   items!: SaleSplitTicketGroupItemResponseDto[];
 }
 
+export class SaleRetryResponseDto {
+  sale!: SaleResponseDto;
+  retry_status!: "issued" | "failed" | "already_issued" | "ambiguous" | "reconciliation_required";
+  message!: string;
+}
+
 export class SaleResponseDto {
   id!: string;
   user_id!: string;

@@ -12,6 +12,9 @@ describe("ListSalesUseCase", () => {
       findByUser: jest.fn(),
       findPageByUser: jest.fn(),
       findByIdForUser: jest.fn(),
+          findByIdForUserForUpdate: jest.fn(),
+          markInvoiceIssued: jest.fn(),
+          transitionInvoiceStatus: jest.fn(),
     };
     useCase = new ListSalesUseCase(sales);
   });

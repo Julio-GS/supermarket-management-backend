@@ -1,4 +1,4 @@
-export type InvoiceStatus = "none" | "issued" | "failed";
+export type InvoiceStatus = "none" | "issued" | "failed" | "issuing" | "ambiguous";
 export const PAYMENT_METHODS = ["cash", "transfer", "card", "qr"] as const;
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 
