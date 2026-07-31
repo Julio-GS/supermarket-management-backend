@@ -1,0 +1,127 @@
+name: Fly business hours
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Action to run against Fly machines
+        required: true
+        type: choice
+        options:
+          - start
+          - stop
+  schedule:
+    # America/Argentina/Buenos_Aires (UTC-3)
+    - cron: "50 11 * * *" # 08:50 ART
+    - cron: "45 17 * * *" # 14:45 ART
+    - cron: "50 19 * * *" # 16:50 ART
+    - cron: "45 0 * * *"  # 21:45 ART
+
+concurrency:
+  group: fly-business-hours
+  cancel-in-progress: false
+
+env:
+  FLY_APP: supermarket-backend-basualdo
+
+jobs:
+  start-morning:
+    if: github.event_name == 'schedule' && github.event.schedule == '50 11 * * *'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Start Fly machines
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          ids=$(flyctl machine list -a "$FLY_APP" --json | jq -r '.[].id')
+          if [ -z "$ids" ]; then
+            echo "No machines found for $FLY_APP"
+            exit 1
+          fi
+          while IFS= read -r id; do
+            [ -n "$id" ] || continue
+            echo "Starting machine $id"
+            flyctl machine start "$id" -a "$FLY_APP"
+          done <<< "$ids"
+
+  stop-midday:
+    if: github.event_name == 'schedule' && github.event.schedule == '45 17 * * *'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Stop Fly machines
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          ids=$(flyctl machine list -a "$FLY_APP" --json | jq -r '.[].id')
+          if [ -z "$ids" ]; then
+            echo "No machines found for $FLY_APP"
+            exit 1
+          fi
+          while IFS= read -r id; do
+            [ -n "$id" ] || continue
+            echo "Stopping machine $id"
+            flyctl machine stop "$id" -a "$FLY_APP"
+          done <<< "$ids"
+
+  start-afternoon:
+    if: github.event_name == 'schedule' && github.event.schedule == '50 19 * * *'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Start Fly machines
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          ids=$(flyctl machine list -a "$FLY_APP" --json | jq -r '.[].id')
+          if [ -z "$ids" ]; then
+            echo "No machines found for $FLY_APP"
+            exit 1
+          fi
+          while IFS= read -r id; do
+            [ -n "$id" ] || continue
+            echo "Starting machine $id"
+            flyctl machine start "$id" -a "$FLY_APP"
+          done <<< "$ids"
+
+  stop-night:
+    if: github.event_name == 'schedule' && github.event.schedule == '45 0 * * *'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Stop Fly machines
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          ids=$(flyctl machine list -a "$FLY_APP" --json | jq -r '.[].id')
+          if [ -z "$ids" ]; then
+            echo "No machines found for $FLY_APP"
+            exit 1
+          fi
+          while IFS= read -r id; do
+            [ -n "$id" ] || continue
+            echo "Stopping machine $id"
+            flyctl machine stop "$id" -a "$FLY_APP"
+          done <<< "$ids"
+
+  manual:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Apply manual action
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          ACTION: ${{ inputs.action }}
+        run: |
+          ids=$(flyctl machine list -a "$FLY_APP" --json | jq -r '.[].id')
+          if [ -z "$ids" ]; then
+            echo "No machines found for $FLY_APP"
+            exit 1
+          fi
+          while IFS= read -r id; do
+            [ -n "$id" ] || continue
+            echo "Running '$ACTION' on machine $id"
+            flyctl machine "$ACTION" "$id" -a "$FLY_APP"
+          done <<< "$ids"
