@@ -15,6 +15,7 @@ import { GetProductByCodeUseCase } from "./application/get-product-by-code.use-c
 import { ReadCacheModule } from "../../shared/cache/read-cache.module";
 import { DatabaseModule } from "../../shared/database/database.module";
 import { InventoryModule } from "../inventory/inventory.module";
+import { LabelPrinterModule } from "../label-printer/label-printer.module";
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { InventoryModule } from "../inventory/inventory.module";
     ReadCacheModule,
     DatabaseModule,
     forwardRef(() => InventoryModule),
+    LabelPrinterModule,
   ],
   controllers: [ProductsController],
   providers: [

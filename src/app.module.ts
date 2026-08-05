@@ -13,6 +13,7 @@ import { SalesModule } from "./modules/sales/sales.module";
 import { ReportsModule } from "./modules/reports/reports.module";
 import { PromotionsModule } from "./modules/promotions/promotions.module";
 import { InventoryModule } from "./modules/inventory/inventory.module";
+import { LabelPrinterModule } from "./modules/label-printer/label-printer.module";
 import { ReadCacheModule } from "./shared/cache/read-cache.module";
 import { SyncModule } from "./modules/sync/sync.module";
 
@@ -38,6 +39,7 @@ import { SyncModule } from "./modules/sync/sync.module";
     ReportsModule,
     PromotionsModule,
     InventoryModule,
+    LabelPrinterModule,
     SyncModule,
   ],
 })

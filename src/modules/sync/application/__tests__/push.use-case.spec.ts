@@ -8,6 +8,8 @@ import { InventoryRepositoryPort } from "../../../inventory/application/inventor
 import { ProductRepositoryPort } from "../../../products/application/product.repository.port";
 import { PromotionRepositoryPort } from "../../../promotions/application/promotion.repository.port";
 import { ProviderPurchaseRepositoryPort } from "../../../reports/application/provider-purchase.repository.port";
+import { TransactionRunnerPort } from "../../../../shared/database/transaction-runner.port";
+import { AutoLabelJobService } from "../../../label-printer/application/auto-label-job.service";
 import type { SyncPushEntry } from "../sync.types";
 import { Sale } from "../../../sales/domain/sale.entity";
 
@@ -109,6 +111,14 @@ const mockTombstoneRepo = {
   save: jest.fn(),
 };
 
+const mockTransactionRunner = {
+  run: jest.fn((work) => work({})),
+};
+
+const mockAutoLabel = {
+  onProductPriceChanged: jest.fn(),
+};
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -128,6 +138,8 @@ describe("PushUseCase", () => {
         { provide: ProductRepositoryPort, useValue: mockProductRepo },
         { provide: PromotionRepositoryPort, useValue: mockPromotionRepo },
         { provide: ProviderPurchaseRepositoryPort, useValue: mockProviderPurchaseRepo },
+        { provide: TransactionRunnerPort, useValue: mockTransactionRunner },
+        { provide: AutoLabelJobService, useValue: mockAutoLabel },
             { provide: getRepositoryToken(SyncTombstoneEntity), useValue: mockTombstoneRepo },
       ],
     }).compile();
@@ -410,6 +422,83 @@ describe("PushUseCase", () => {
       );
     });
   });
+
+    it("product_update with price change triggers auto label job", async () => {
+      mockIdempotency.hasBeenProcessed.mockResolvedValue(false);
+      mockIdempotency.checkIdempotencyViolation.mockResolvedValue(undefined);
+
+      mockProductRepo.findById.mockResolvedValue({
+        id: "prod-existing",
+        detalle: "Old Name",
+        costo_final: "100.00",
+        codigos: ["SKU001"],
+        updated_at: "v5",
+      });
+      mockProductRepo.update.mockResolvedValue({
+        id: "prod-existing",
+        detalle: "Old Name",
+        costo_final: "200.00",
+        codigos: ["SKU001"],
+      });
+      mockAutoLabel.onProductPriceChanged.mockResolvedValue(null);
+
+      const entry: SyncPushEntry = {
+        id: "out-pu-price",
+        idempotency_key: "inst-1:out-pu-price",
+        operation_type: "product_update",
+        aggregate_type: "product",
+        aggregate_id: "prod-existing",
+        payload: { costo_final: "200.00" },
+        base_server_version: "v5",
+        actor_user_id: "user-1",
+        created_at: "2026-07-18T10:00:00.000Z",
+      };
+
+      const response = await useCase.execute({ entries: [entry] });
+
+      expect(response.results[0].status).toBe("accepted");
+      expect(mockAutoLabel.onProductPriceChanged).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "prod-existing", costo_final: "100.00" }),
+        "200.00",
+        expect.anything(),
+      );
+    });
+
+    it("product_update without price change does not trigger label job", async () => {
+      mockIdempotency.hasBeenProcessed.mockResolvedValue(false);
+      mockIdempotency.checkIdempotencyViolation.mockResolvedValue(undefined);
+
+      mockProductRepo.findById.mockResolvedValue({
+        id: "prod-existing",
+        detalle: "Product",
+        costo_final: "150.00",
+        codigos: ["SKU001"],
+        updated_at: "v5",
+      });
+      mockProductRepo.update.mockResolvedValue({
+        id: "prod-existing",
+        detalle: "New Name",
+        costo_final: "150.00",
+        codigos: ["SKU001"],
+      });
+
+      const entry: SyncPushEntry = {
+        id: "out-pu-noprice",
+        idempotency_key: "inst-1:out-pu-noprice",
+        operation_type: "product_update",
+        aggregate_type: "product",
+        aggregate_id: "prod-existing",
+        payload: { detalle: "New Name" },
+        base_server_version: "v5",
+        actor_user_id: "user-1",
+        created_at: "2026-07-18T10:00:00.000Z",
+      };
+
+      const response = await useCase.execute({ entries: [entry] });
+
+      expect(response.results[0].status).toBe("accepted");
+      expect(mockAutoLabel.onProductPriceChanged).not.toHaveBeenCalled();
+    });
 
   // -----------------------------------------------------------------------
   // RED — promotion_create, promotion_update, promotion_delete (Slice 5)

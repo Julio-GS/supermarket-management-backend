@@ -14,6 +14,11 @@ import { AddAdhocSaleItems1804000000000 } from "./migrations/1804000000000-AddAd
 import { AddInventoryControl1805000000000 } from "./migrations/1805000000000-AddInventoryControl";
 import { AddSyncIdempotency1806000000000 } from "./migrations/1806000000000-AddSyncIdempotency";
 import { AddSyncTombstones1807000000000 } from "./migrations/1807000000000-AddSyncTombstones";
+import { AddLabelPrintJobs1808000000000 } from "./migrations/1808000000000-AddLabelPrintJobs";
+import { AddSourceToLabelPrintJobs1809000000000 } from "./migrations/1809000000000-AddSourceToLabelPrintJobs";
+import { AddAutoJobConcurrencyGuard1810000000000 } from "./migrations/1810000000000-AddAutoJobConcurrencyGuard";
+import { AddSupersededStatusToLabelPrintJobs1811000000000 } from "./migrations/1811000000000-AddSupersededStatusToLabelPrintJobs";
+import { FixLabelPrintJobsTimestamptz1812000000000 } from "./migrations/1812000000000-FixLabelPrintJobsTimestamptz";
 
 export default new DataSource({
   type: "postgres",
@@ -36,7 +41,12 @@ export default new DataSource({
     AddAdhocSaleItems1804000000000,
     AddInventoryControl1805000000000,
     AddSyncIdempotency1806000000000,
-        AddSyncTombstones1807000000000,
+    AddSyncTombstones1807000000000,
+    AddLabelPrintJobs1808000000000,
+    AddSourceToLabelPrintJobs1809000000000,
+    AddAutoJobConcurrencyGuard1810000000000,
+    AddSupersededStatusToLabelPrintJobs1811000000000,
+    FixLabelPrintJobsTimestamptz1812000000000,
   ],
   migrationsRun: false,
   synchronize: false,

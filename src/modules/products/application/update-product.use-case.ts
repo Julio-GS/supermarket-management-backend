@@ -14,6 +14,7 @@ import { PRODUCT_READ_CACHE_POLICY } from "../../../shared/cache/cache-policy";
 import { containsReservedCode } from "../domain/special-product-codes";
 import { InventoryRepositoryPort } from "../../inventory/application/inventory.repository.port";
 import { TransactionRunnerPort } from "../../../shared/database/transaction-runner.port";
+import { AutoLabelJobService } from "../../label-printer/application/auto-label-job.service";
 
 @Injectable()
 export class UpdateProductUseCase {
@@ -22,6 +23,7 @@ export class UpdateProductUseCase {
     private readonly cache: ReadCachePort,
     private readonly inventory: InventoryRepositoryPort,
     private readonly transactionRunner: TransactionRunnerPort,
+    private readonly autoLabel: AutoLabelJobService,
   ) {}
 
   async execute(id: string, input: ProductUpdateInput): Promise<Product> {
@@ -53,11 +55,22 @@ export class UpdateProductUseCase {
       }
     }
 
+    const newCostoFinal =
+      input.costo_final !== undefined ? input.costo_final : existing.costo_final;
+    const priceChanged = newCostoFinal !== existing.costo_final;
+
     const updated = await this.transactionRunner.run(async (runner) => {
       const product = await this.products.update(id, input, runner);
       if (!product) throw new NotFoundError("Product not found");
       if (!existing.maneja_stock && product.maneja_stock) {
         await this.inventory.createBalance(id, 0, runner);
+      }
+      if (priceChanged) {
+        await this.autoLabel.onProductPriceChanged(
+          existing,
+          newCostoFinal,
+          runner,
+        );
       }
       return product;
     });

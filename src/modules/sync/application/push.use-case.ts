@@ -20,6 +20,8 @@ import type {
 import type { CreatePromotionInput, UpdatePromotionInput } from "../../promotions/application/promotion.repository.port";
 import type { ProductUpdateInput } from "../../products/application/product.repository.port";
 import type { UpdateProviderPurchaseInput } from "../../reports/application/provider-purchase.repository.port";
+import { TransactionRunnerPort } from "../../../shared/database/transaction-runner.port";
+import { AutoLabelJobService } from "../../label-printer/application/auto-label-job.service";
 
 const STOCK_ADJUSTMENT: StockMovementType = "adjustment";
 
@@ -71,6 +73,8 @@ export class PushUseCase {
     private readonly productRepo: ProductRepositoryPort,
     private readonly promotionRepo: PromotionRepositoryPort,
     private readonly providerPurchaseRepo: ProviderPurchaseRepositoryPort,
+    private readonly transactionRunner: TransactionRunnerPort,
+    private readonly autoLabel: AutoLabelJobService,
     @InjectRepository(SyncTombstoneEntity)
     private readonly tombstoneRepo: Repository<SyncTombstoneEntity>,
   ) {}
@@ -363,7 +367,39 @@ export class PushUseCase {
     if (payload.maneja_stock !== undefined) updateInput.maneja_stock = payload.maneja_stock as boolean;
     if (payload.codigos !== undefined) updateInput.codigos = payload.codigos as string[];
 
-    const product = await this.productRepo.update(entry.aggregate_id, updateInput);
+    // Fetch current product when price may change (needed for comparison and snapshot)
+    let current = undefined as any;
+    if (payload.costo_final !== undefined) {
+      current = await this.productRepo.findById(entry.aggregate_id);
+    }
+
+    const priceChanged =
+      payload.costo_final !== undefined &&
+      payload.costo_final !== current?.costo_final;
+
+    let product;
+    if (priceChanged) {
+      product = await this.transactionRunner.run(async (runner) => {
+        const updated = await this.productRepo.update(
+          entry.aggregate_id,
+          updateInput,
+          runner,
+        );
+        await this.autoLabel.onProductPriceChanged(
+          {
+            id: entry.aggregate_id,
+            detalle: current?.detalle ?? "",
+            costo_final: current?.costo_final ?? null,
+            codigos: current?.codigos ?? [],
+          },
+          payload.costo_final as string | null,
+          runner,
+        );
+        return updated;
+      });
+    } else {
+      product = await this.productRepo.update(entry.aggregate_id, updateInput);
+    }
 
     const serverId = product?.id ?? entry.aggregate_id;
 

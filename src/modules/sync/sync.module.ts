@@ -6,6 +6,8 @@ import { PromotionsModule } from "../promotions/promotions.module";
 import { ReportsModule } from "../reports/reports.module";
 import { UsersModule } from "../users/users.module";
 import { SalesModule } from "../sales/sales.module";
+import { LabelPrinterModule } from "../label-printer/label-printer.module";
+import { DatabaseModule } from "../../shared/database/database.module";
 import { BootstrapController } from "./presentation/bootstrap.controller";
 import { BootstrapUseCase } from "./application/bootstrap.use-case";
 import { SyncController } from "./presentation/sync.controller";
@@ -26,6 +28,8 @@ import { SyncTombstoneEntity } from "./infrastructure/sync-tombstone.entity";
     ReportsModule,
     UsersModule,
     SalesModule,
+    LabelPrinterModule,
+    DatabaseModule,
   ],
   controllers: [BootstrapController, SyncController, AuthRevalidateController],
   providers: [

@@ -12,6 +12,7 @@ import {
 import { Product } from "../domain/product.entity";
 import { InventoryRepositoryPort } from "../../inventory/application/inventory.repository.port";
 import { TransactionRunnerPort } from "../../../shared/database/transaction-runner.port";
+import { AutoLabelJobService } from "../../label-printer/application/auto-label-job.service";
 
 function buildProduct(overrides: Partial<Product> = {}): Product {
   const p = new Product();
@@ -151,6 +152,7 @@ describe("Product CRUD Guards", () => {
     let products: jest.Mocked<ProductRepositoryPort>;
     let cache: jest.Mocked<ReadCachePort>;
     let inventory: Pick<InventoryRepositoryPort, "findBalance" | "createBalance">;
+    let autoLabel: jest.Mocked<AutoLabelJobService>;
     const transactionRunner = { run: jest.fn((work) => work({})) };
 
     beforeEach(async () => {
@@ -168,6 +170,7 @@ describe("Product CRUD Guards", () => {
       };
       cache = { getOrSet: jest.fn(), deleteByPrefix: jest.fn() };
       inventory = { findBalance: jest.fn(), createBalance: jest.fn() };
+      autoLabel = { onProductPriceChanged: jest.fn() } as any;
 
       const module: TestingModule = await Test.createTestingModule({
         providers: [
@@ -176,6 +179,7 @@ describe("Product CRUD Guards", () => {
           { provide: ReadCachePort, useValue: cache },
           { provide: InventoryRepositoryPort, useValue: inventory },
           { provide: TransactionRunnerPort, useValue: transactionRunner },
+          { provide: AutoLabelJobService, useValue: autoLabel },
         ],
       }).compile();
 
@@ -232,6 +236,47 @@ describe("Product CRUD Guards", () => {
 
       expect(inventory.createBalance).toHaveBeenCalledWith(product.id, 0, {});
       expect(transactionRunner.run).toHaveBeenCalled();
+    });
+
+    it("triggers auto label job when final sale price changes", async () => {
+      const product = buildProduct({ costo_final: "100.00" });
+      products.findById.mockResolvedValue(product);
+      const updated = buildProduct({ costo_final: "200.00" });
+      products.update.mockResolvedValue(updated);
+
+      await useCase.execute(product.id, { costo_final: "200.00" });
+
+      expect(autoLabel.onProductPriceChanged).toHaveBeenCalledWith(
+        expect.objectContaining({ id: product.id, costo_final: "100.00" }),
+        "200.00",
+        expect.anything(),
+      );
+    });
+
+    it("does not trigger auto label job when price is unchanged", async () => {
+      const product = buildProduct({ costo_final: "150.00" });
+      products.findById.mockResolvedValue(product);
+      const updated = buildProduct({ detalle: "New Name", costo_final: "150.00" });
+      products.update.mockResolvedValue(updated);
+
+      await useCase.execute(product.id, { detalle: "New Name" });
+
+      expect(autoLabel.onProductPriceChanged).not.toHaveBeenCalled();
+    });
+
+    it("triggers auto label job when price changes from null", async () => {
+      const product = buildProduct({ costo_final: null });
+      products.findById.mockResolvedValue(product);
+      const updated = buildProduct({ costo_final: "300.00" });
+      products.update.mockResolvedValue(updated);
+
+      await useCase.execute(product.id, { costo_final: "300.00" });
+
+      expect(autoLabel.onProductPriceChanged).toHaveBeenCalledWith(
+        expect.objectContaining({ costo_final: null }),
+        "300.00",
+        expect.anything(),
+      );
     });
   });
 
