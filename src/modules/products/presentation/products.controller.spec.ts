@@ -1,4 +1,5 @@
 import { Test, TestingModule } from "@nestjs/testing";
+import { ValidationPipe } from "@nestjs/common";
 import { ProductsController } from "./products.controller";
 import { ProductResponseDto, UpdateProductDto } from "./product.dto";
 import { PromotionRepositoryPort } from "../../promotions/application/promotion.repository.port";
@@ -550,6 +551,53 @@ describe("ProductsController", () => {
     });
   });
 
+
+        describe("ValidationPipe", () => {
+          const pipe = new ValidationPipe({
+            whitelist: true,
+            forbidNonWhitelisted: true,
+            transform: true,
+            transformOptions: { enableImplicitConversion: false },
+          });
+          const metatype = UpdateProductDto;
+          const metadata = { type: "body" as const, metatype, data: "" };
+
+          it("rejects stock_actual as a forbidden non-whitelisted property", async () => {
+            const body = { maneja_stock: true, stock_actual: 100 };
+
+            await expect(
+              pipe.transform(body, metadata),
+            ).rejects.toMatchObject({
+              response: {
+                message: expect.arrayContaining([
+                  expect.stringContaining("stock_actual"),
+                ]),
+              },
+            });
+          });
+
+          it("accepts a valid body with maneja_stock", async () => {
+            const body = { maneja_stock: true };
+
+            const result = await pipe.transform(body, metadata);
+
+            expect(result).toMatchObject({ maneja_stock: true });
+          });
+
+          it("rejects unknown fields", async () => {
+            const body = { unknown_field: "anything" };
+
+            await expect(
+              pipe.transform(body, metadata),
+            ).rejects.toMatchObject({
+              response: {
+                message: expect.arrayContaining([
+                  expect.stringContaining("unknown_field"),
+                ]),
+              },
+            });
+          });
+        });
   describe("stock_actual enrichment", () => {
     it("includes stock_actual numeric for stock-tracked product in get-by-id", async () => {
       const product = buildProduct({ id: "prod-1", maneja_stock: true });
