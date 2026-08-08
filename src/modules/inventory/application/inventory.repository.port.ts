@@ -21,7 +21,7 @@ export abstract class InventoryRepositoryPort {
     delta: number,
     type: StockMovementType,
     referenceId?: string,
-    reason?: string,
+    reason?: string | null,
   ): Promise<StockMovement>;
   abstract findMovementsByProduct(productId: string): Promise<StockMovement[]>;
 }

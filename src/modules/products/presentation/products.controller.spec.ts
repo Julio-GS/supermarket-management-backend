@@ -1,6 +1,6 @@
 import { Test, TestingModule } from "@nestjs/testing";
 import { ProductsController } from "./products.controller";
-import { ProductResponseDto } from "./product.dto";
+import { ProductResponseDto, UpdateProductDto } from "./product.dto";
 import { PromotionRepositoryPort } from "../../promotions/application/promotion.repository.port";
 import { InventoryRepositoryPort } from "../../inventory/application/inventory.repository.port";
 import { CreateProductUseCase } from "../application/create-product.use-case";
@@ -12,7 +12,7 @@ import { GetProductByCodeUseCase } from "../application/get-product-by-code.use-
 import { Product } from "../domain/product.entity";
 import { Promotion } from "../../promotions/domain/promotion.entity";
 import { InventoryBalance } from "../../inventory/domain/inventory.entity";
-import { NotFoundError } from "../../../shared/errors/domain.error";
+import { NotFoundError, ValidationError } from "../../../shared/errors/domain.error";
 
 function buildProduct(overrides: Partial<Product> = {}): Product {
   const p = new Product();
@@ -312,6 +312,150 @@ describe("ProductsController", () => {
       await controller.getByCode("1");
       expect(getProductByCode.execute).toHaveBeenCalledWith("1");
     });
+
+    it("trims leading whitespace and delegates trimmed code to the use case", async () => {
+      const product = buildProduct({
+        id: "prod-1",
+        codigos: ["77909145"],
+      });
+      getProductByCode.execute.mockResolvedValue(product);
+      promoRepo.findActiveByProductIds.mockResolvedValue([]);
+
+      await controller.getByCode("  77909145");
+
+      expect(getProductByCode.execute).toHaveBeenCalledWith("77909145");
+    });
+
+    it("trims trailing whitespace and delegates trimmed code to the use case", async () => {
+      const product = buildProduct({
+        id: "prod-1",
+        codigos: ["77909145"],
+      });
+      getProductByCode.execute.mockResolvedValue(product);
+      promoRepo.findActiveByProductIds.mockResolvedValue([]);
+
+      await controller.getByCode("77909145  ");
+
+      expect(getProductByCode.execute).toHaveBeenCalledWith("77909145");
+    });
+
+    it("trims both leading and trailing whitespace", async () => {
+      const product = buildProduct({
+        id: "prod-1",
+        codigos: ["77909145"],
+      });
+      getProductByCode.execute.mockResolvedValue(product);
+      promoRepo.findActiveByProductIds.mockResolvedValue([]);
+
+      await controller.getByCode("  77909145  ");
+
+      expect(getProductByCode.execute).toHaveBeenCalledWith("77909145");
+    });
+
+    it("preserves internal whitespace while trimming external whitespace", async () => {
+      const product = buildProduct({
+        id: "prod-1",
+        codigos: ["779 09145"],
+      });
+      getProductByCode.execute.mockResolvedValue(product);
+      promoRepo.findActiveByProductIds.mockResolvedValue([]);
+
+      await controller.getByCode("  779 09145  ");
+
+      expect(getProductByCode.execute).toHaveBeenCalledWith("779 09145");
+    });
+
+    it("throws ValidationError when code is whitespace-only after trim", async () => {
+      await expect(controller.getByCode("   ")).rejects.toBeInstanceOf(
+        ValidationError,
+      );
+      expect(getProductByCode.execute).not.toHaveBeenCalled();
+    });
+
+    it("throws ValidationError when code is a single space", async () => {
+      await expect(controller.getByCode(" ")).rejects.toBeInstanceOf(
+        ValidationError,
+      );
+      expect(getProductByCode.execute).not.toHaveBeenCalled();
+    });
+
+    it("resolves short registered code '77909145' by exact equality (no EAN padding)", async () => {
+      const product = buildProduct({
+        id: "prod-1",
+        codigos: ["77909145"],
+      });
+      getProductByCode.execute.mockResolvedValue(product);
+      promoRepo.findActiveByProductIds.mockResolvedValue([]);
+
+      const result = await controller.getByCode("77909145");
+
+      expect(result.id).toBe("prod-1");
+      expect(getProductByCode.execute).toHaveBeenCalledWith("77909145");
+    });
+
+    it("resolves long registered code by exact equality", async () => {
+      const longCode = "ABC-12345678901234567890";
+      const product = buildProduct({
+        id: "prod-long",
+        codigos: [longCode],
+      });
+      getProductByCode.execute.mockResolvedValue(product);
+      promoRepo.findActiveByProductIds.mockResolvedValue([]);
+
+      const result = await controller.getByCode(longCode);
+
+      expect(result.id).toBe("prod-long");
+      expect(getProductByCode.execute).toHaveBeenCalledWith(longCode);
+    });
+
+    it("passes exact trimmed code — does not pad, transform, or normalize", async () => {
+      const product = buildProduct({
+        id: "prod-1",
+        codigos: ["1234"],
+      });
+      getProductByCode.execute.mockResolvedValue(product);
+      promoRepo.findActiveByProductIds.mockResolvedValue([]);
+
+      await controller.getByCode(" 1234 ");
+
+      // Must be exact "1234", not "0000000001234" or any EAN-padded form
+      expect(getProductByCode.execute).toHaveBeenCalledWith("1234");
+    });
+
+    it("rejects tab-only whitespace code with ValidationError", async () => {
+      await expect(controller.getByCode("\t\t")).rejects.toBeInstanceOf(
+        ValidationError,
+      );
+      expect(getProductByCode.execute).not.toHaveBeenCalled();
+    });
+
+    it("trims mixed tab and space whitespace before lookup", async () => {
+      const product = buildProduct({
+        id: "prod-1",
+        codigos: ["77909145"],
+      });
+      getProductByCode.execute.mockResolvedValue(product);
+      promoRepo.findActiveByProductIds.mockResolvedValue([]);
+
+      // Tab + space + code + space + tab
+      await controller.getByCode("\t 77909145 \t");
+
+      expect(getProductByCode.execute).toHaveBeenCalledWith("77909145");
+    });
+
+    it("preserves embedded tabs as part of the code", async () => {
+      const product = buildProduct({
+        id: "prod-1",
+        codigos: ["779\t09145"],
+      });
+      getProductByCode.execute.mockResolvedValue(product);
+      promoRepo.findActiveByProductIds.mockResolvedValue([]);
+
+      await controller.getByCode(" 779\t09145 ");
+
+      // Only external whitespace trimmed, internal tab preserved
+      expect(getProductByCode.execute).toHaveBeenCalledWith("779\t09145");
+    });
   });
 
   describe("update", () => {
@@ -335,6 +479,74 @@ describe("ProductsController", () => {
 
       expect(result.store_promotions).toHaveLength(1);
       expect(result.store_promotions![0].id).toBe("promo-store");
+    });
+
+    it("returns stock_actual null when maneja_stock is false after update", async () => {
+      const product = buildProduct({ id: "prod-1", maneja_stock: false });
+      updateProduct.execute.mockResolvedValue(product);
+      promoRepo.findActiveByProductIds.mockResolvedValue([]);
+
+      const result = await controller.update("prod-1", {
+        maneja_stock: false,
+      });
+
+      expect(result.stock_actual).toBeNull();
+      expect(inventoryRepo.findBalance).not.toHaveBeenCalled();
+    });
+
+    it("returns stock_actual from balance when maneja_stock is true after update", async () => {
+      const product = buildProduct({ id: "prod-1", maneja_stock: true });
+      updateProduct.execute.mockResolvedValue(product);
+      inventoryRepo.findBalance.mockResolvedValue({
+        product_id: "prod-1",
+        stock_actual: 30,
+        updated_at: new Date(),
+      } as InventoryBalance);
+      promoRepo.findActiveByProductIds.mockResolvedValue([]);
+
+      const result = await controller.update("prod-1", {
+        maneja_stock: true,
+      });
+
+      expect(result.stock_actual).toBe(30);
+      expect(inventoryRepo.findBalance).toHaveBeenCalledWith("prod-1");
+    });
+
+    it("re-enabling stock exposes the preserved previous balance", async () => {
+      // Simulate: product had maneja_stock=true, balance 25;
+      // client disabled it, then re-enabled. The balance must survive.
+      const product = buildProduct({ id: "prod-1", maneja_stock: true });
+      updateProduct.execute.mockResolvedValue(product);
+      inventoryRepo.findBalance.mockResolvedValue({
+        product_id: "prod-1",
+        stock_actual: 25,
+        updated_at: new Date(),
+      } as InventoryBalance);
+      promoRepo.findActiveByProductIds.mockResolvedValue([]);
+
+      const result = await controller.update("prod-1", {
+        maneja_stock: true,
+      });
+
+      // The preserved balance of 25 is exposed, not 0
+      expect(result.stock_actual).toBe(25);
+    });
+  });
+
+  describe("UpdateProductDto contract", () => {
+    it("does not declare stock_actual — HTTP whitelist rejects it", () => {
+      // Static guard: stock_actual must NOT be a decorated property of
+      // UpdateProductDto. Global ValidationPipe with whitelist:true +
+      // forbidNonWhitelisted:true will reject it at the HTTP boundary.
+      const dto = new UpdateProductDto();
+      const ownKeys = Object.getOwnPropertyNames(dto);
+
+      // If someone adds stock_actual in the future this test breaks.
+      expect(ownKeys).not.toContain("stock_actual");
+
+      // Even if TypeScript add it as an implicit class member the DTO
+      // constructor sets no such key.
+      expect((dto as Record<string, unknown>).stock_actual).toBeUndefined();
     });
   });
 

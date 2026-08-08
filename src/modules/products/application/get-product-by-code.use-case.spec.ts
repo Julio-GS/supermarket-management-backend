@@ -61,4 +61,45 @@ describe("GetProductByCodeUseCase", () => {
 
     await expect(useCase.execute("")).rejects.toBeInstanceOf(NotFoundError);
   });
+
+    it("looks up a short registered code '77909145' by exact equality", async () => {
+      const product = buildProduct({ codigos: ["77909145"] });
+      products.findByBarcode.mockResolvedValue(product);
+
+      const result = await useCase.execute("77909145");
+
+      expect(result).toBe(product);
+      expect(products.findByBarcode).toHaveBeenCalledWith("77909145");
+    });
+
+    it("looks up a long registered code by exact equality", async () => {
+      const longCode = "ABC-12345678901234567890";
+      const product = buildProduct({ codigos: [longCode] });
+      products.findByBarcode.mockResolvedValue(product);
+
+      const result = await useCase.execute(longCode);
+
+      expect(result).toBe(product);
+      expect(products.findByBarcode).toHaveBeenCalledWith(longCode);
+    });
+
+    it("passes internal whitespace through unchanged", async () => {
+      const product = buildProduct({ codigos: ["779 09145"] });
+      products.findByBarcode.mockResolvedValue(product);
+
+      const result = await useCase.execute("779 09145");
+
+      expect(result).toBe(product);
+      expect(products.findByBarcode).toHaveBeenCalledWith("779 09145");
+    });
+
+    it("does not pad short codes to any fixed length", async () => {
+      const product = buildProduct({ codigos: ["1234"] });
+      products.findByBarcode.mockResolvedValue(product);
+
+      await useCase.execute("1234");
+
+      // Must call with exact "1234", not "0000000001234"
+      expect(products.findByBarcode).toHaveBeenCalledWith("1234");
+    });
 });

@@ -67,7 +67,7 @@ export class TypeOrmInventoryRepository extends InventoryRepositoryPort {
     delta: number,
     type: StockMovementType,
     referenceId?: string,
-    reason?: string,
+    reason?: string | null,
   ): Promise<StockMovement> {
     return this.transactionRunner.run(async (runner) => {
       const balanceRepo = runner.manager.getRepository(InventoryBalanceEntity);

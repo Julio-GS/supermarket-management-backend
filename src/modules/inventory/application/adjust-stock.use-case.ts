@@ -7,6 +7,13 @@ import { ProductRepositoryPort } from "../../products/application/product.reposi
 import { StockMovement } from "../domain/inventory.entity";
 import { NotFoundError, ValidationError } from "../../../shared/errors/domain.error";
 
+export function normalizeStockAdjustmentReason(
+  reason: string | null | undefined,
+): string | null {
+  if (reason == null) return null;
+  return reason.trim().length === 0 ? null : reason;
+}
+
 @Injectable()
 export class AdjustStockUseCase {
   constructor(
@@ -17,6 +24,10 @@ export class AdjustStockUseCase {
   async execute(input: StockAdjustInput): Promise<StockMovement> {
     if (!Number.isInteger(input.quantity)) {
       throw new ValidationError("Stock adjustment quantity must be a whole integer");
+    }
+
+    if (input.quantity === 0) {
+      throw new ValidationError("Stock adjustment quantity must be nonzero");
     }
 
     const product = await this.products.findById(input.product_id);
@@ -35,7 +46,7 @@ export class AdjustStockUseCase {
       input.quantity,
       "adjustment",
       undefined,
-      input.reason,
+      normalizeStockAdjustmentReason(input.reason),
     );
   }
 }

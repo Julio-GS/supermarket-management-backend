@@ -78,7 +78,8 @@ export class ReportsController {
   async getReport(
     @Query() query: ReportQueryDto,
   ): Promise<ReportResponseDto> {
-    const report = await this.getBusinessReport.execute(query.window);
+    const input = GetBusinessReportUseCase.parseBusinessReportInput(query);
+    const report = await this.getBusinessReport.execute(input);
     return toReportResponse(report);
   }
 

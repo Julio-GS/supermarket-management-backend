@@ -29,6 +29,7 @@ import { UpdateProductUseCase } from "../application/update-product.use-case";
 import { DeleteProductUseCase } from "../application/delete-product.use-case";
 import { GetProductByCodeUseCase } from "../application/get-product-by-code.use-case";
 import { Product } from "../domain/product.entity";
+import { ValidationError } from "../../../shared/errors/domain.error";
 import {
   hasPaginationQuery,
   normalizePagination,
@@ -142,7 +143,11 @@ export class ProductsController {
 
   @Get("code/:code")
   async getByCode(@Param("code") code: string): Promise<ProductResponseDto> {
-    const product = await this.getProductByCode.execute(code);
+    const trimmedCode = code.trim();
+    if (trimmedCode.length === 0) {
+      throw new ValidationError("Product code must not be empty");
+    }
+    const product = await this.getProductByCode.execute(trimmedCode);
     const { promotionsById, storePromotions } =
       await this.loadPromotionsMap([product.id], argentinaNow());
     const storeList =

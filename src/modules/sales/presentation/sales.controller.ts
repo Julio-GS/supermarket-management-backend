@@ -33,7 +33,7 @@ interface AuthenticatedRequest extends Request {
   user: { sub: string; username: string };
 }
 
-function toSaleResponse(sale: Sale): SaleResponseDto {
+export function toSaleResponse(sale: Sale): SaleResponseDto {
   return {
     id: sale.id,
     user_id: sale.user_id,

@@ -1,10 +1,19 @@
-import { IsIn, IsNotEmpty, IsString } from "class-validator";
+import { IsIn, IsNotEmpty, IsOptional, IsString } from "class-validator";
 import { REPORT_WINDOWS, ReportWindow } from "../domain/report.entity";
 
 export class ReportQueryDto {
+  @IsOptional()
   @IsIn(REPORT_WINDOWS as unknown as string[])
   @IsNotEmpty()
-  window!: ReportWindow;
+  window?: ReportWindow;
+
+  @IsOptional()
+  @IsString()
+  from?: string;
+
+  @IsOptional()
+  @IsString()
+  to?: string;
 }
 
 export class PaymentMethodBreakdownDto {

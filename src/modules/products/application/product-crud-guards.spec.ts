@@ -278,6 +278,44 @@ describe("Product CRUD Guards", () => {
         expect.anything(),
       );
     });
+
+    it("does not delete or reset the underlying balance when stock tracking is disabled (true→false)", async () => {
+      const product = buildProduct({ maneja_stock: true });
+      products.findById.mockResolvedValue(product);
+      products.update.mockResolvedValue(
+        buildProduct({ maneja_stock: false }),
+      );
+
+      await useCase.execute(product.id, { maneja_stock: false });
+
+      // Disabling stock must not touch inventory — balance is preserved
+      expect(inventory.createBalance).not.toHaveBeenCalled();
+    });
+
+    it("does not create a duplicate balance when stock tracking was already enabled (true→true)", async () => {
+      const product = buildProduct({ maneja_stock: true });
+      products.findById.mockResolvedValue(product);
+      products.update.mockResolvedValue(
+        buildProduct({ maneja_stock: true, detalle: "Updated" }),
+      );
+
+      await useCase.execute(product.id, { detalle: "Updated" });
+
+      // No balance creation because stock was already tracked
+      expect(inventory.createBalance).not.toHaveBeenCalled();
+    });
+
+    it("does not create a balance when stock tracking remains disabled (false→false)", async () => {
+      const product = buildProduct({ maneja_stock: false });
+      products.findById.mockResolvedValue(product);
+      products.update.mockResolvedValue(
+        buildProduct({ maneja_stock: false, detalle: "Updated" }),
+      );
+
+      await useCase.execute(product.id, { detalle: "Updated" });
+
+      expect(inventory.createBalance).not.toHaveBeenCalled();
+    });
   });
 
   describe("DeleteProductUseCase — protected product guard", () => {

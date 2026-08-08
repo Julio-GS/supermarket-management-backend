@@ -114,4 +114,124 @@ describe("AdjustStockUseCase", () => {
       useCase.execute({ product_id: "nonexistent", quantity: 10 }),
     ).rejects.toThrow(NotFoundError);
   });
+
+  it("rejects zero quantity", async () => {
+    await expect(
+      useCase.execute({ product_id: "prod-1", quantity: 0 }),
+    ).rejects.toThrow(ValidationError);
+  });
+
+  it("normalizes absent reason to null", async () => {
+    const product = makeProduct();
+    products.findById.mockResolvedValue(product);
+    inventoryRepo.adjustBalance.mockResolvedValue(makeMovement());
+
+    await useCase.execute({ product_id: "prod-1", quantity: 5 });
+
+    expect(inventoryRepo.adjustBalance).toHaveBeenCalledWith(
+      "prod-1", 5, "adjustment", undefined, null,
+    );
+  });
+
+  it("normalizes null reason to null", async () => {
+    const product = makeProduct();
+    products.findById.mockResolvedValue(product);
+    inventoryRepo.adjustBalance.mockResolvedValue(makeMovement());
+
+    await useCase.execute({
+      product_id: "prod-1",
+      quantity: 5,
+      reason: null as unknown as string,
+    });
+
+    expect(inventoryRepo.adjustBalance).toHaveBeenCalledWith(
+      "prod-1", 5, "adjustment", undefined, null,
+    );
+  });
+
+  it("normalizes empty string reason to null", async () => {
+    const product = makeProduct();
+    products.findById.mockResolvedValue(product);
+    inventoryRepo.adjustBalance.mockResolvedValue(makeMovement());
+
+    await useCase.execute({ product_id: "prod-1", quantity: 5, reason: "" });
+
+    expect(inventoryRepo.adjustBalance).toHaveBeenCalledWith(
+      "prod-1", 5, "adjustment", undefined, null,
+    );
+  });
+
+  it("normalizes whitespace-only reason to null", async () => {
+    const product = makeProduct();
+    products.findById.mockResolvedValue(product);
+    inventoryRepo.adjustBalance.mockResolvedValue(makeMovement());
+
+    await useCase.execute({ product_id: "prod-1", quantity: 5, reason: "   " });
+
+    expect(inventoryRepo.adjustBalance).toHaveBeenCalledWith(
+      "prod-1", 5, "adjustment", undefined, null,
+    );
+  });
+
+  it("preserves nonblank reason exactly", async () => {
+    const product = makeProduct();
+    products.findById.mockResolvedValue(product);
+    inventoryRepo.adjustBalance.mockResolvedValue(makeMovement());
+
+    await useCase.execute({
+      product_id: "prod-1",
+      quantity: 5,
+      reason: "Recepción mercadería",
+    });
+
+    expect(inventoryRepo.adjustBalance).toHaveBeenCalledWith(
+      "prod-1", 5, "adjustment", undefined, "Recepción mercadería",
+    );
+  });
+
+  it("allows adjustment that results in negative balance", async () => {
+    const product = makeProduct();
+    products.findById.mockResolvedValue(product);
+    const movement = makeMovement({
+      quantity: -10,
+      previous_stock: 3,
+      new_stock: -7,
+    });
+    inventoryRepo.adjustBalance.mockResolvedValue(movement);
+
+    const result = await useCase.execute({ product_id: "prod-1", quantity: -10 });
+
+    expect(result.new_stock).toBe(-7);
+  });
+
+  it("allows further negative adjustment on already negative balance", async () => {
+    const product = makeProduct();
+    products.findById.mockResolvedValue(product);
+    const movement = makeMovement({
+      quantity: -3,
+      previous_stock: -2,
+      new_stock: -5,
+    });
+    inventoryRepo.adjustBalance.mockResolvedValue(movement);
+
+    const result = await useCase.execute({ product_id: "prod-1", quantity: -3 });
+
+    expect(result.new_stock).toBe(-5);
+  });
+
+  it("preserves reason with surrounding spaces exactly", async () => {
+    const product = makeProduct();
+    products.findById.mockResolvedValue(product);
+    inventoryRepo.adjustBalance.mockResolvedValue(makeMovement());
+
+    await useCase.execute({
+      product_id: "prod-1",
+      quantity: 5,
+      reason: "  real reason  ",
+    });
+
+    expect(inventoryRepo.adjustBalance).toHaveBeenCalledWith(
+      "prod-1", 5, "adjustment", undefined, "  real reason  ",
+    );
+  });
 });

@@ -1,6 +1,7 @@
 import { PaymentMethod, PAYMENT_METHODS } from "../../sales/domain/sale.entity";
 
 export type ReportWindow = "day" | "week" | "month";
+export type ReportMode = ReportWindow | "custom";
 
 export const REPORT_WINDOWS: readonly ReportWindow[] = ["day", "week", "month"];
 
@@ -16,7 +17,7 @@ export interface TopProduct {
 }
 
 export interface BusinessReport {
-  window: ReportWindow;
+  window: ReportMode;
   range: { startsAt: string; endsAt: string };
   totalCollectedAmount: string;
   paymentMethodBreakdown: PaymentMethodBreakdown[];
