@@ -26,12 +26,13 @@ describe("data-source", () => {
         "AddAutoJobConcurrencyGuard1810000000000",
         "AddSupersededStatusToLabelPrintJobs1811000000000",
         "FixLabelPrintJobsTimestamptz1812000000000",
+        "AddProductCreateIdempotencyKeys1813000000000",
       ]);
     });
 
-    it("has exactly 19 migrations", () => {
+    it("has exactly 20 migrations", () => {
       const migrations = dataSource.options.migrations as Function[];
-      expect(migrations).toHaveLength(19);
+      expect(migrations).toHaveLength(20);
     });
   });
 });

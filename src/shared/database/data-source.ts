@@ -19,6 +19,7 @@ import { AddSourceToLabelPrintJobs1809000000000 } from "./migrations/18090000000
 import { AddAutoJobConcurrencyGuard1810000000000 } from "./migrations/1810000000000-AddAutoJobConcurrencyGuard";
 import { AddSupersededStatusToLabelPrintJobs1811000000000 } from "./migrations/1811000000000-AddSupersededStatusToLabelPrintJobs";
 import { FixLabelPrintJobsTimestamptz1812000000000 } from "./migrations/1812000000000-FixLabelPrintJobsTimestamptz";
+import { AddProductCreateIdempotencyKeys1813000000000 } from "./migrations/1813000000000-AddProductCreateIdempotencyKeys";
 
 export default new DataSource({
   type: "postgres",
@@ -47,6 +48,7 @@ export default new DataSource({
     AddAutoJobConcurrencyGuard1810000000000,
     AddSupersededStatusToLabelPrintJobs1811000000000,
     FixLabelPrintJobsTimestamptz1812000000000,
+    AddProductCreateIdempotencyKeys1813000000000,
   ],
   migrationsRun: false,
   synchronize: false,
