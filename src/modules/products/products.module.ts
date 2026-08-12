@@ -6,6 +6,10 @@ import { ProductRepositoryPort } from "./application/product.repository.port";
 import { TypeOrmProductRepository } from "./infrastructure/typeorm-product.repository";
 import { ProductEntity } from "./infrastructure/typeorm-product.entity";
 import { ProductBarcodeEntity } from "./infrastructure/typeorm-product-barcode.entity";
+import { ProductCreateIdempotencyEntity } from "./infrastructure/typeorm-product-create-idempotency.entity";
+import { ProductCreateIdempotencyRepositoryPort } from "./application/product-create-idempotency.repository.port";
+import { TypeOrmProductCreateIdempotencyRepository } from "./infrastructure/typeorm-product-create-idempotency.repository";
+import { ProductCreatePayloadCanonicalizer } from "./application/product-create-payload-canonicalizer";
 import { CreateProductUseCase } from "./application/create-product.use-case";
 import { ListProductsUseCase } from "./application/list-products.use-case";
 import { GetProductUseCase } from "./application/get-product.use-case";
@@ -19,7 +23,7 @@ import { LabelPrinterModule } from "../label-printer/label-printer.module";
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([ProductEntity, ProductBarcodeEntity]),
+    TypeOrmModule.forFeature([ProductEntity, ProductBarcodeEntity, ProductCreateIdempotencyEntity]),
     PromotionsModule,
     ReadCacheModule,
     DatabaseModule,
@@ -38,7 +42,12 @@ import { LabelPrinterModule } from "../label-printer/label-printer.module";
     UpdateProductUseCase,
     DeleteProductUseCase,
     GetProductByCodeUseCase,
+    ProductCreatePayloadCanonicalizer,
+    {
+      provide: ProductCreateIdempotencyRepositoryPort,
+      useClass: TypeOrmProductCreateIdempotencyRepository,
+    },
   ],
-  exports: [ProductRepositoryPort],
+  exports: [ProductRepositoryPort, ProductCreateIdempotencyRepositoryPort],
 })
 export class ProductsModule {}
