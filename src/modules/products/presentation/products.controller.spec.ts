@@ -1,7 +1,7 @@
 import { Test, TestingModule } from "@nestjs/testing";
 import { ValidationPipe } from "@nestjs/common";
 import { ProductsController } from "./products.controller";
-import { ProductResponseDto, UpdateProductDto } from "./product.dto";
+import { ProductResponseDto, UpdateProductDto, CreateProductDto } from "./product.dto";
 import { PromotionRepositoryPort } from "../../promotions/application/promotion.repository.port";
 import { InventoryRepositoryPort } from "../../inventory/application/inventory.repository.port";
 import { CreateProductUseCase } from "../application/create-product.use-case";
@@ -663,6 +663,138 @@ describe("ProductsController", () => {
         "prod-a",
         "prod-b",
       ]);
+    });
+  });
+
+  describe("create (idempotency key)", () => {
+    let createProduct: jest.Mocked<Pick<CreateProductUseCase, "execute">>;
+
+    beforeEach(async () => {
+      const module: TestingModule = await Test.createTestingModule({
+        controllers: [ProductsController],
+        providers: [
+          { provide: CreateProductUseCase, useValue: { execute: jest.fn() } },
+          { provide: ListProductsUseCase, useValue: { execute: jest.fn(), executePage: jest.fn() } },
+          { provide: GetProductUseCase, useValue: { execute: jest.fn() } },
+          { provide: UpdateProductUseCase, useValue: { execute: jest.fn() } },
+          { provide: DeleteProductUseCase, useValue: { execute: jest.fn() } },
+          { provide: GetProductByCodeUseCase, useValue: { execute: jest.fn() } },
+          { provide: PromotionRepositoryPort, useValue: { findActiveByProductIds: jest.fn() } },
+          { provide: InventoryRepositoryPort, useValue: { findBalance: jest.fn(), findBalancesByIds: jest.fn() } },
+        ],
+      }).compile();
+
+      controller = module.get(ProductsController);
+      createProduct = module.get(CreateProductUseCase);
+    });
+
+    it("calls use case with DTO and trimmed idempotency key", async () => {
+      const dto: CreateProductDto = {
+        detalle: "Test",
+        cambio_costo: "2024-01-01",
+        cambio_precio: "2024-01-01",
+        etiqueta: "test",
+        facturable: true,
+        maneja_stock: false,
+        codigos: ["T001"],
+      };
+      const response = {
+        id: "p1",
+        detalle: "Test",
+        label_status: "not_required",
+        label_job: null,
+      };
+      createProduct.execute.mockResolvedValue(response);
+
+      const result = await controller.create(dto, "  key-abc  ");
+
+      expect(createProduct.execute).toHaveBeenCalledWith(dto, "key-abc");
+      expect(result).toBe(response);
+    });
+
+    it("validates and rejects missing idempotency key", async () => {
+      const dto: CreateProductDto = {
+        detalle: "Test",
+        cambio_costo: "2024-01-01",
+        cambio_precio: "2024-01-01",
+        etiqueta: "test",
+        facturable: true,
+        maneja_stock: false,
+        codigos: ["T001"],
+      };
+
+      await expect(
+        controller.create(dto, undefined as any),
+      ).rejects.toBeInstanceOf(ValidationError);
+      expect(createProduct.execute).not.toHaveBeenCalled();
+    });
+
+    it("validates and rejects empty idempotency key", async () => {
+      const dto: CreateProductDto = {
+        detalle: "Test",
+        cambio_costo: "2024-01-01",
+        cambio_precio: "2024-01-01",
+        etiqueta: "test",
+        facturable: true,
+        maneja_stock: false,
+        codigos: ["T001"],
+      };
+
+      await expect(
+        controller.create(dto, ""),
+      ).rejects.toBeInstanceOf(ValidationError);
+      expect(createProduct.execute).not.toHaveBeenCalled();
+    });
+
+    it("validates and rejects whitespace-only idempotency key", async () => {
+      const dto: CreateProductDto = {
+        detalle: "Test",
+        cambio_costo: "2024-01-01",
+        cambio_precio: "2024-01-01",
+        etiqueta: "test",
+        facturable: true,
+        maneja_stock: false,
+        codigos: ["T001"],
+      };
+
+      await expect(
+        controller.create(dto, "   "),
+      ).rejects.toBeInstanceOf(ValidationError);
+      expect(createProduct.execute).not.toHaveBeenCalled();
+    });
+
+    it("trims leading and trailing whitespace from key", async () => {
+      const dto: CreateProductDto = {
+        detalle: "Test",
+        cambio_costo: "2024-01-01",
+        cambio_precio: "2024-01-01",
+        etiqueta: "test",
+        facturable: true,
+        maneja_stock: false,
+        codigos: ["T001"],
+      };
+      createProduct.execute.mockResolvedValue({ id: "p1" });
+
+      await controller.create(dto, "  my-key  ");
+
+      expect(createProduct.execute).toHaveBeenCalledWith(dto, "my-key");
+    });
+
+    it("passes tab-trimmed key to use case", async () => {
+      const dto: CreateProductDto = {
+        detalle: "Test",
+        cambio_costo: "2024-01-01",
+        cambio_precio: "2024-01-01",
+        etiqueta: "test",
+        facturable: true,
+        maneja_stock: false,
+        codigos: ["T001"],
+      };
+      createProduct.execute.mockResolvedValue({ id: "p1" });
+
+      await controller.create(dto, "\t\tkey-tab\t");
+
+      expect(createProduct.execute).toHaveBeenCalledWith(dto, "key-tab");
     });
   });
 });

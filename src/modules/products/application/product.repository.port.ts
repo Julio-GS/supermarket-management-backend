@@ -59,5 +59,6 @@ export abstract class ProductRepositoryPort {
   abstract existsAnyBarcode(
     codigos: string[],
     excludeProductId?: string,
+    runner?: QueryRunner,
   ): Promise<boolean>;
 }

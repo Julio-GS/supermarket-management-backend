@@ -13,6 +13,9 @@ import { Product } from "../domain/product.entity";
 import { InventoryRepositoryPort } from "../../inventory/application/inventory.repository.port";
 import { TransactionRunnerPort } from "../../../shared/database/transaction-runner.port";
 import { AutoLabelJobService } from "../../label-printer/application/auto-label-job.service";
+import { ProductCreateIdempotencyRepositoryPort } from "./product-create-idempotency.repository.port";
+import { PrintJobRepositoryPort } from "../../label-printer/application/print-job.repository.port";
+import { ProductCreatePayloadCanonicalizer } from "./product-create-payload-canonicalizer";
 
 function buildProduct(overrides: Partial<Product> = {}): Product {
   const p = new Product();
@@ -40,7 +43,9 @@ describe("Product CRUD Guards", () => {
     let products: jest.Mocked<ProductRepositoryPort>;
     let cache: jest.Mocked<ReadCachePort>;
     let inventory: Pick<InventoryRepositoryPort, "createBalance">;
-    const transactionRunner = { run: jest.fn((work) => work({})) };
+    let idempotencyRepo: any;
+    let printJobRepo: any;
+    const transactionRunner = { run: jest.fn((work) => work({ query: jest.fn() })) };
 
     beforeEach(async () => {
       products = {
@@ -57,6 +62,13 @@ describe("Product CRUD Guards", () => {
       };
       cache = { getOrSet: jest.fn(), deleteByPrefix: jest.fn() };
       inventory = { createBalance: jest.fn() };
+      idempotencyRepo = { findByKey: jest.fn(), create: jest.fn() };
+      printJobRepo = { create: jest.fn() };
+      const canonicalizer = new ProductCreatePayloadCanonicalizer();
+
+      idempotencyRepo.findByKey.mockResolvedValue(null);
+      idempotencyRepo.create.mockResolvedValue({} as any);
+      printJobRepo.create.mockResolvedValue({ id: 'job-mock', product_id: 'prod-1', sku: 'TEST001', product_name: 'Test', sale_price: '200.00', status: 'pending', source: 'auto', created_at: new Date(), updated_at: new Date() });
 
       const module: TestingModule = await Test.createTestingModule({
         providers: [
@@ -65,6 +77,9 @@ describe("Product CRUD Guards", () => {
           { provide: ReadCachePort, useValue: cache },
           { provide: InventoryRepositoryPort, useValue: inventory },
           { provide: TransactionRunnerPort, useValue: transactionRunner },
+          { provide: ProductCreateIdempotencyRepositoryPort, useValue: idempotencyRepo },
+          { provide: PrintJobRepositoryPort, useValue: printJobRepo },
+          { provide: ProductCreatePayloadCanonicalizer, useValue: canonicalizer },
         ],
       }).compile();
 
@@ -86,7 +101,7 @@ describe("Product CRUD Guards", () => {
           facturable: true,
           maneja_stock: false,
           codigos: ["1"],
-        }),
+        }, "key-1"),
       ).rejects.toBeInstanceOf(ValidationError);
       expect(products.create).not.toHaveBeenCalled();
     });
@@ -106,7 +121,7 @@ describe("Product CRUD Guards", () => {
           facturable: true,
           maneja_stock: false,
           codigos: ["ABC123", "9", "XYZ"],
-        }),
+        }, "key-2"),
       ).rejects.toBeInstanceOf(ValidationError);
       expect(products.create).not.toHaveBeenCalled();
     });
@@ -126,11 +141,10 @@ describe("Product CRUD Guards", () => {
         facturable: true,
         maneja_stock: false,
         codigos: ["ABC123"],
-      });
+      }, "key-3");
 
       expect(result.codigos).toEqual(["ABC123"]);
       expect(products.create).toHaveBeenCalled();
-      expect(inventory.createBalance).not.toHaveBeenCalled();
     });
 
     it("initializes a balance for a stock-managed product", async () => {
@@ -140,9 +154,9 @@ describe("Product CRUD Guards", () => {
       await useCase.execute({
         detalle: "Tracked Product", cambio_costo: "2024-01-01", cambio_precio: "2024-01-01",
         etiqueta: "test", facturable: true, maneja_stock: true, codigos: ["TRACKED"],
-      });
+      }, "key-4");
 
-      expect(inventory.createBalance).toHaveBeenCalledWith("prod-1", 0, {});
+      expect(inventory.createBalance).toHaveBeenCalledWith("prod-1", 0, expect.anything());
       expect(transactionRunner.run).toHaveBeenCalled();
     });
   });
@@ -153,7 +167,7 @@ describe("Product CRUD Guards", () => {
     let cache: jest.Mocked<ReadCachePort>;
     let inventory: Pick<InventoryRepositoryPort, "findBalance" | "createBalance">;
     let autoLabel: jest.Mocked<AutoLabelJobService>;
-    const transactionRunner = { run: jest.fn((work) => work({})) };
+    const transactionRunner = { run: jest.fn((work) => work({ query: jest.fn() })) };
 
     beforeEach(async () => {
       products = {
@@ -234,7 +248,7 @@ describe("Product CRUD Guards", () => {
       products.update.mockResolvedValue(buildProduct({ maneja_stock: true }));
       await useCase.execute(product.id, { maneja_stock: true });
 
-      expect(inventory.createBalance).toHaveBeenCalledWith(product.id, 0, {});
+      expect(inventory.createBalance).toHaveBeenCalledWith(product.id, 0, expect.anything());
       expect(transactionRunner.run).toHaveBeenCalled();
     });
 

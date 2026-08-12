@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
   HttpCode,
   HttpStatus,
   Param,
@@ -19,6 +20,7 @@ import {
   CreateProductDto,
   UpdateProductDto,
   ProductResponseDto,
+  ProductCreateResponseDto,
   ProductPromotionSummaryDto,
   ProductListQueryDto,
 } from "./product.dto";
@@ -96,10 +98,16 @@ export class ProductsController {
   ) {}
 
   @Post()
-  async create(@Body() dto: CreateProductDto): Promise<ProductResponseDto> {
-    const product = await this.createProduct.execute(dto);
-    const stockActual = await resolveStockActual(product, this.inventoryRepo);
-    return toProductResponse(product, stockActual);
+  async create(
+    @Body() dto: CreateProductDto,
+    @Headers('idempotency-key') idempotencyKey?: string,
+  ): Promise<ProductCreateResponseDto> {
+    const trimmedKey = idempotencyKey?.trim();
+    if (!trimmedKey) {
+      throw new ValidationError("Idempotency-Key header is required");
+    }
+    const result = await this.createProduct.execute(dto, trimmedKey);
+    return result as unknown as ProductCreateResponseDto;
   }
 
   @Get()

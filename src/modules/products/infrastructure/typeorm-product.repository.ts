@@ -148,8 +148,10 @@ export class TypeOrmProductRepository extends ProductRepositoryPort {
   async existsAnyBarcode(
     codigos: string[],
     excludeProductId?: string,
+    runner?: QueryRunner,
   ): Promise<boolean> {
-    const qb = this.barcodeRepo
+    const barcodeRepo = runner?.manager.getRepository(ProductBarcodeEntity) ?? this.barcodeRepo;
+    const qb = barcodeRepo
       .createQueryBuilder("b")
       .where("b.codigo IN (:...codigos)", { codigos });
     if (excludeProductId) {

@@ -141,3 +141,21 @@ export class ProductListQueryDto extends PaginationQueryDto {
   @IsString()
   search?: string;
 }
+
+export class ProductCreateLabelJobDto {
+  id!: string;
+  product_id!: string;
+  sku!: string;
+  product_name!: string;
+  sale_price!: string;
+  status!: 'pending';
+  source!: 'auto';
+  quantity!: 1;
+  created_at!: string | Date;
+  updated_at!: string | Date;
+}
+
+export class ProductCreateResponseDto extends ProductResponseDto {
+  label_status!: 'pending' | 'not_required';
+  label_job!: ProductCreateLabelJobDto | null;
+}
