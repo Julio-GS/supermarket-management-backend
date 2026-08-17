@@ -13,6 +13,7 @@ import { SaleTicketAllocationEntity } from "./infrastructure/typeorm-sale-ticket
 import { CreateSaleUseCase } from "./application/create-sale.use-case";
 import { SaleItemResolver } from "./application/sale-item-resolver";
 import { SaleFiscalOrchestrator } from "./application/sale-fiscal-orchestrator";
+import { PostPersistenceInventoryPolicy } from "./application/post-persistence-inventory-policy";
 import { ListSalesUseCase } from "./application/list-sales.use-case";
 import { GetSaleUseCase } from "./application/get-sale.use-case";
 import { IssueArcaInvoiceUseCase } from "./application/issue-arca-invoice.use-case";
@@ -54,6 +55,7 @@ import { ReadCacheModule } from "../../shared/cache/read-cache.module";
     CreateSaleUseCase,
     SaleItemResolver,
     SaleFiscalOrchestrator,
+    PostPersistenceInventoryPolicy,
     ListSalesUseCase,
     GetSaleUseCase,
     IssueArcaInvoiceUseCase,

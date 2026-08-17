@@ -173,3 +173,20 @@ export interface FiscalResult {
   fiscalFields: FiscalFields;
 }
 
+export interface InventoryDeductionLine {
+  productId: string;
+  quantity: number;
+  stockManaged: boolean;
+}
+
+export function toInventoryDeductionLines(
+  lines: ResolvedSaleLine[],
+): InventoryDeductionLine[] {
+  return lines.map((line) => ({
+    productId: line.lineId,
+    quantity: line.quantity,
+    stockManaged: line.kind !== "ad-hoc" && line.stockManaged,
+  }));
+}
+
+

@@ -11,6 +11,7 @@ import {
   CreateManualDiscountInput,
   CreateSaleInput,
   CreateSaleItemInput,
+  toInventoryDeductionLines,
 } from "./create-sale.types";
 import { SaleInputNormalizer } from "./sale-input-normalizer";
 import { SalePaymentPolicy } from "./sale-payment-policy";
@@ -18,6 +19,7 @@ import { SaleItemResolver } from "./sale-item-resolver";
 import { SalePricingCalculator } from "./sale-pricing-calculator";
 import { SaleFiscalOrchestrator } from "./sale-fiscal-orchestrator";
 import { SalePersistenceAssembler } from "./sale-persistence-assembler";
+import { PostPersistenceInventoryPolicy } from "./post-persistence-inventory-policy";
 
 export {
   CreateManualDiscountInput,
@@ -37,13 +39,13 @@ export {
  * aggregated into a single adjustment per product before locking.
  */
 export class CreateSaleUseCase {
-  private readonly logger = new Logger(CreateSaleUseCase.name);
   private readonly inputNormalizer = new SaleInputNormalizer();
   private readonly paymentPolicy = new SalePaymentPolicy();
   private readonly itemResolver: SaleItemResolver;
   private readonly pricingCalculator = new SalePricingCalculator();
   private readonly fiscalOrchestrator: SaleFiscalOrchestrator;
   private readonly persistenceAssembler = new SalePersistenceAssembler();
+  private readonly inventoryPolicy: PostPersistenceInventoryPolicy;
 
   constructor(
     private readonly products: ProductRepositoryPort,
@@ -53,6 +55,7 @@ export class CreateSaleUseCase {
     private readonly promotionResolver: PromotionResolverService,
     @Optional() itemResolver?: SaleItemResolver,
     @Optional() fiscalOrchestrator?: SaleFiscalOrchestrator,
+    @Optional() inventoryPolicy?: PostPersistenceInventoryPolicy,
   ) {
     this.itemResolver =
       itemResolver ??
@@ -60,6 +63,9 @@ export class CreateSaleUseCase {
     this.fiscalOrchestrator =
       fiscalOrchestrator ??
       new SaleFiscalOrchestrator(this.issueInvoice);
+    this.inventoryPolicy =
+      inventoryPolicy ??
+      new PostPersistenceInventoryPolicy(this.inventory);
   }
 
   async execute(input: CreateSaleInput): Promise<Sale> {
@@ -92,32 +98,10 @@ export class CreateSaleUseCase {
 
     const sale = await this.sales.create(saleCreateInput);
 
-    // Deduct stock for managed catalog items (ad-hoc items are skipped)
-    const managedDeductions = new Map<string, number>();
-    for (const line of resolved.lines) {
-      if (line.kind === "ad-hoc" || !line.stockManaged) continue;
-      const current = managedDeductions.get(line.lineId) ?? 0;
-      managedDeductions.set(line.lineId, current + line.quantity);
-    }
-
-    // Deterministic lock order: sort product UUIDs before locking balances
-    const sortedProductIds = [...managedDeductions.keys()].sort();
-    for (const productId of sortedProductIds) {
-      const totalDeduction = managedDeductions.get(productId)!;
-      try {
-        await this.inventory.adjustBalance(
-          productId,
-          -totalDeduction,
-          "sale",
-          sale.id,
-        );
-      } catch (error) {
-        this.logger.error(
-          `Failed to deduct stock for product ${productId} after sale ${sale.id}; sale was persisted and will be returned`,
-          error instanceof Error ? error.stack : undefined,
-        );
-      }
-    }
+    await this.inventoryPolicy.deductAfterSalePersisted({
+      saleId: sale.id,
+      lines: toInventoryDeductionLines(resolved.lines),
+    });
 
     return sale;
   }
