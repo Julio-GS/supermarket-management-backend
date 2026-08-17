@@ -124,3 +124,11 @@ export interface IdempotencyRecord {
   reason?: string | null;
   created_at: Date;
 }
+
+// ---------------------------------------------------------------------------
+// Domain Payload & Guard Re-exports
+// ---------------------------------------------------------------------------
+
+export * from '../domain/sync-payloads';
+export * from '../domain/sync-payload.guards';
+
