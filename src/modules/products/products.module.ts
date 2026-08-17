@@ -1,4 +1,4 @@
-import { forwardRef, Module } from "@nestjs/common";
+import { Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { PromotionsModule } from "../promotions/promotions.module";
 import { ProductsController } from "./presentation/products.controller";
@@ -27,7 +27,7 @@ import { LabelPrinterModule } from "../label-printer/label-printer.module";
     PromotionsModule,
     ReadCacheModule,
     DatabaseModule,
-    forwardRef(() => InventoryModule),
+    InventoryModule,
     LabelPrinterModule,
   ],
   controllers: [ProductsController],

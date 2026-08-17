@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { InventoryRepositoryPort } from "./inventory.repository.port";
-import { ProductRepositoryPort } from "../../products/application/product.repository.port";
+import { StockProductLookupPort } from "./stock-product-lookup.port";
 import { NotFoundError } from "../../../shared/errors/domain.error";
 
 export interface StockResponse {
@@ -11,11 +11,11 @@ export interface StockResponse {
 export class GetStockUseCase {
   constructor(
     private readonly inventoryRepo: InventoryRepositoryPort,
-    private readonly products: ProductRepositoryPort,
+    private readonly productLookup: StockProductLookupPort,
   ) {}
 
   async execute(productId: string): Promise<StockResponse> {
-    const product = await this.products.findById(productId);
+    const product = await this.productLookup.findById(productId);
     if (!product) {
       throw new NotFoundError("Product not found");
     }

@@ -1,35 +1,13 @@
 import { GetStockUseCase } from "./get-stock.use-case";
 import { InventoryRepositoryPort } from "./inventory.repository.port";
-import { ProductRepositoryPort } from "../../products/application/product.repository.port";
+import { StockProductLookupPort } from "./stock-product-lookup.port";
 import { InventoryBalance } from "../domain/inventory.entity";
-import { Product } from "../../products/domain/product.entity";
 import { NotFoundError } from "../../../shared/errors/domain.error";
 
 describe("GetStockUseCase", () => {
   let inventoryRepo: jest.Mocked<InventoryRepositoryPort>;
-  let products: jest.Mocked<ProductRepositoryPort>;
+  let productLookup: jest.Mocked<StockProductLookupPort>;
   let useCase: GetStockUseCase;
-
-  function makeProduct(overrides: Partial<Product> = {}): Product {
-    const p = new Product();
-    p.id = "prod-1";
-    p.detalle = "Test Product";
-    p.costo_neto = null;
-    p.costo_final = "100.00";
-    p.iva = "21.00";
-    p.cambio_costo = "ARS";
-    p.cambio_precio = "ARS";
-    p.etiqueta = "test";
-    p.facturable = true;
-    p.maneja_stock = true;
-    p.codigos = ["123"];
-    p.pricing_mode = "fixed";
-    p.is_protected = false;
-    p.created_at = new Date();
-    p.updated_at = new Date();
-    Object.assign(p, overrides);
-    return p;
-  }
 
   function makeBalance(productId: string, stockActual: number): InventoryBalance {
     const b = new InventoryBalance();
@@ -48,24 +26,14 @@ describe("GetStockUseCase", () => {
       adjustBalance: jest.fn(),
       findMovementsByProduct: jest.fn(),
     };
-    products = {
-      create: jest.fn(),
-      findAll: jest.fn(),
-      findPage: jest.fn(),
+    productLookup = {
       findById: jest.fn(),
-      findByIdsForSale: jest.fn(),
-      findByBarcode: jest.fn(),
-      findByCode: jest.fn(),
-      update: jest.fn(),
-      delete: jest.fn(),
-      existsAnyBarcode: jest.fn(),
     };
-    useCase = new GetStockUseCase(inventoryRepo, products);
+    useCase = new GetStockUseCase(inventoryRepo, productLookup);
   });
 
   it("returns stock_actual for a product that manages stock", async () => {
-    const product = makeProduct({ maneja_stock: true });
-    products.findById.mockResolvedValue(product);
+    productLookup.findById.mockResolvedValue({ id: "prod-1", maneja_stock: true });
     inventoryRepo.findBalance.mockResolvedValue(makeBalance("prod-1", 42));
 
     const result = await useCase.execute("prod-1");
@@ -74,8 +42,7 @@ describe("GetStockUseCase", () => {
   });
 
   it("returns 0 when a stock-tracked product has no balance yet", async () => {
-    const product = makeProduct({ maneja_stock: true });
-    products.findById.mockResolvedValue(product);
+    productLookup.findById.mockResolvedValue({ id: "prod-1", maneja_stock: true });
     inventoryRepo.findBalance.mockResolvedValue(null);
 
     const result = await useCase.execute("prod-1");
@@ -84,8 +51,7 @@ describe("GetStockUseCase", () => {
   });
 
   it("returns null for a product that does not manage stock", async () => {
-    const product = makeProduct({ maneja_stock: false });
-    products.findById.mockResolvedValue(product);
+    productLookup.findById.mockResolvedValue({ id: "prod-1", maneja_stock: false });
 
     const result = await useCase.execute("prod-1");
 
@@ -94,7 +60,7 @@ describe("GetStockUseCase", () => {
   });
 
   it("throws NotFoundError when product does not exist", async () => {
-    products.findById.mockResolvedValue(null);
+    productLookup.findById.mockResolvedValue(null);
 
     await expect(useCase.execute("nonexistent")).rejects.toThrow(NotFoundError);
   });

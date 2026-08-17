@@ -3,7 +3,7 @@ import {
   InventoryRepositoryPort,
   StockAdjustInput,
 } from "./inventory.repository.port";
-import { ProductRepositoryPort } from "../../products/application/product.repository.port";
+import { StockProductLookupPort } from "./stock-product-lookup.port";
 import { StockMovement } from "../domain/inventory.entity";
 import { NotFoundError, ValidationError } from "../../../shared/errors/domain.error";
 
@@ -18,7 +18,7 @@ export function normalizeStockAdjustmentReason(
 export class AdjustStockUseCase {
   constructor(
     private readonly inventoryRepo: InventoryRepositoryPort,
-    private readonly products: ProductRepositoryPort,
+    private readonly productLookup: StockProductLookupPort,
   ) {}
 
   async execute(input: StockAdjustInput): Promise<StockMovement> {
@@ -30,7 +30,7 @@ export class AdjustStockUseCase {
       throw new ValidationError("Stock adjustment quantity must be nonzero");
     }
 
-    const product = await this.products.findById(input.product_id);
+    const product = await this.productLookup.findById(input.product_id);
     if (!product) {
       throw new NotFoundError("Product not found");
     }
