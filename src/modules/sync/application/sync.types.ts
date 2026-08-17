@@ -126,9 +126,11 @@ export interface IdempotencyRecord {
 }
 
 // ---------------------------------------------------------------------------
-// Domain Payload & Guard Re-exports
+// Domain Payload, Guard & Port Re-exports
 // ---------------------------------------------------------------------------
 
 export * from '../domain/sync-payloads';
 export * from '../domain/sync-payload.guards';
+export * from './ports/sync-operation-handler.port';
+
 
