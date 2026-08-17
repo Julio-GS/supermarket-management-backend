@@ -1,21 +1,12 @@
 import { Injectable, Logger, Optional } from "@nestjs/common";
-import { Decimal } from "decimal.js";
 import { ProductRepositoryPort } from "../../products/application/product.repository.port";
-import { SaleRepositoryPort, SaleItemCreateData } from "./sale.repository.port";
+import { SaleRepositoryPort } from "./sale.repository.port";
 import { InventoryRepositoryPort } from "../../inventory/application/inventory.repository.port";
 import { IssueArcaInvoiceUseCase } from "./issue-arca-invoice.use-case";
 import {
   PromotionResolverService,
 } from "../../promotions/application/promotion-resolver.service";
-import {
-  InvoiceStatus,
-  ManualDiscountModality,
-  Sale,
-} from "../domain/sale.entity";
-import {
-  ValidationError,
-} from "../../../shared/errors/domain.error";
-import { Money } from "../../../shared/money/money.helper";
+import { Sale } from "../domain/sale.entity";
 import {
   CreateManualDiscountInput,
   CreateSaleInput,
@@ -26,6 +17,7 @@ import { SalePaymentPolicy } from "./sale-payment-policy";
 import { SaleItemResolver } from "./sale-item-resolver";
 import { SalePricingCalculator } from "./sale-pricing-calculator";
 import { SaleFiscalOrchestrator } from "./sale-fiscal-orchestrator";
+import { SalePersistenceAssembler } from "./sale-persistence-assembler";
 
 export {
   CreateManualDiscountInput,
@@ -51,6 +43,7 @@ export class CreateSaleUseCase {
   private readonly itemResolver: SaleItemResolver;
   private readonly pricingCalculator = new SalePricingCalculator();
   private readonly fiscalOrchestrator: SaleFiscalOrchestrator;
+  private readonly persistenceAssembler = new SalePersistenceAssembler();
 
   constructor(
     private readonly products: ProductRepositoryPort,
@@ -72,7 +65,6 @@ export class CreateSaleUseCase {
   async execute(input: CreateSaleInput): Promise<Sale> {
     const normalized = this.inputNormalizer.normalize(input);
     const paymentMethods = this.paymentPolicy.validate(normalized.paymentMethods);
-    const splitTicketGroups = normalized.splitTicketGroups;
     const invoiceRequested = normalized.invoiceRequested;
 
     const resolved = await this.itemResolver.resolve(normalized);
@@ -81,36 +73,24 @@ export class CreateSaleUseCase {
       manualDiscount: normalized.manualDiscount,
       invoiceRequested,
     });
-    const saleItems = pricing.saleItems;
-    const postPromotionSubtotal = pricing.postPromotionSubtotal;
-    const manualDiscount = pricing.manualDiscount;
-    const finalTotal = pricing.finalTotal;
 
     const fiscal = await this.fiscalOrchestrator.issueIfRequested({
       invoiceRequested,
-      saleItems,
+      saleItems: pricing.saleItems,
       resolvedLines: resolved.lines,
-      postPromotionSubtotal,
-      manualDiscountAmount: manualDiscount.amount,
+      postPromotionSubtotal: pricing.postPromotionSubtotal,
+      manualDiscountAmount: pricing.manualDiscount.amount,
     });
 
-    const sale = await this.sales.create({
-      user_id: normalized.userId,
-      items: saleItems,
-      payment_methods: paymentMethods,
-      split_ticket_groups: splitTicketGroups,
-      total: Money.toString(finalTotal),
-      manual_discount_amount: Money.toString(manualDiscount.amount),
-      manual_discount_modality: manualDiscount.modality,
-      manual_discount_percentage: manualDiscount.percentage,
-      invoice_status: fiscal.invoiceStatus,
-      cae: fiscal.fiscalFields.cae,
-      cae_vto: fiscal.fiscalFields.cae_vto,
-      cbte_nro: fiscal.fiscalFields.cbte_nro,
-      cbte_tipo: fiscal.fiscalFields.cbte_tipo,
-      pto_vta: fiscal.fiscalFields.pto_vta,
-      invoice_requested_at: fiscal.invoiceRequestedAt,
+    const saleCreateInput = this.persistenceAssembler.assemble({
+      userId: normalized.userId,
+      pricing,
+      paymentMethods,
+      splitTicketGroups: normalized.splitTicketGroups,
+      fiscal,
     });
+
+    const sale = await this.sales.create(saleCreateInput);
 
     // Deduct stock for managed catalog items (ad-hoc items are skipped)
     const managedDeductions = new Map<string, number>();
