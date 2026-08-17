@@ -7,6 +7,10 @@ import {
   IsNumber,
 } from "class-validator";
 import { Type } from "class-transformer";
+import type {
+  SyncOperationType,
+  SyncAggregateType,
+} from "../application/sync.types";
 
 // ---------------------------------------------------------------------------
 // Push request DTOs
@@ -23,11 +27,11 @@ export class SyncPushEntryDto {
 
   @IsString()
   @IsNotEmpty()
-  operation_type!: string;
+  operation_type!: SyncOperationType;
 
   @IsString()
   @IsNotEmpty()
-  aggregate_type!: string;
+  aggregate_type!: SyncAggregateType;
 
   @IsString()
   @IsNotEmpty()

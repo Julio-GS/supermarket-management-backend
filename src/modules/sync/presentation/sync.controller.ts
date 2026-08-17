@@ -38,7 +38,7 @@ export class SyncController {
     @Body() body: SyncPushRequestDto,
   ): Promise<SyncPushResponseDto> {
     return this.pushUseCase.execute({
-      entries: body.entries as unknown as SyncPushEntry[],
+      entries: body.entries as SyncPushEntry[]
     });
   }
 
