@@ -1,4 +1,4 @@
-import { PaymentMethod, PAYMENT_METHODS } from "../../sales/domain/sale.entity";
+import type { PaymentMethod } from "../../sales/domain/sale.entity";
 
 export type ReportWindow = "day" | "week" | "month";
 export type ReportMode = ReportWindow | "custom";

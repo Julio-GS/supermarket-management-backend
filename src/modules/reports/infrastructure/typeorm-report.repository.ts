@@ -7,7 +7,7 @@ import {
   ReportAggregateData,
 } from "../domain/report.entity";
 import { Money } from "../../../shared/money/money.helper";
-import { PaymentMethod } from "../../sales/domain/sale.entity";
+import type { PaymentMethod } from "../../sales/domain/sale.entity";
 
 
 interface FiscalGroupingRow {
