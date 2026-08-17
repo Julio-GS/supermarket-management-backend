@@ -1,5 +1,4 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { randomUUID } from "crypto";
 import { Decimal } from "decimal.js";
 import { ProductRepositoryPort } from "../../products/application/product.repository.port";
 import { Product } from "../../products/domain/product.entity";
@@ -12,242 +11,30 @@ import {
 import {
   InvoiceStatus,
   ManualDiscountModality,
-  PAYMENT_METHODS,
-  PaymentMethod,
-  PaymentMethodAllocation,
   Sale,
-  SaleItemSplitTicketInput,
-  SaleSplitTicketGroupInput,
-  SaleSplitTicketItemInput,
 } from "../domain/sale.entity";
 import {
   NotFoundError,
   ValidationError,
 } from "../../../shared/errors/domain.error";
 import { Money } from "../../../shared/money/money.helper";
+import {
+  AdHocSaleItemInput,
+  CatalogReferenceSaleItemInput,
+  CreateManualDiscountInput,
+  CreateSaleInput,
+  CreateSaleItemInput,
+} from "./create-sale.types";
+import { SaleInputNormalizer } from "./sale-input-normalizer";
+import { SalePaymentPolicy } from "./sale-payment-policy";
+
+export {
+  CreateManualDiscountInput,
+  CreateSaleInput,
+  CreateSaleItemInput,
+};
 
 const AD_HOC_IVA_RATE = "21.00";
-
-export interface CreateSaleItemInput {
-  product_id?: string;
-  name?: string;
-  description?: string;
-  unit_price?: string;
-  quantity: number;
-  line_total?: string;
-  split_ticket?: SaleItemSplitTicketInput;
-}
-
-export interface CreateManualDiscountInput {
-  modality: ManualDiscountModality;
-  amount?: string;
-  percentage?: string;
-}
-
-export interface CreateSaleInput {
-  user_id: string;
-  items: CreateSaleItemInput[];
-  payment_methods: PaymentMethodAllocation[];
-  split_ticket_groups?: SaleSplitTicketGroupInput[] | null;
-  invoice_requested?: boolean;
-  manual_discount?: CreateManualDiscountInput | null;
-}
-
-const ALLOWED_PAYMENT_METHODS = new Set<PaymentMethod>(PAYMENT_METHODS);
-const DEFAULT_SPLIT_GROUP_LABELS = ["A", "B"] as const;
-
-function validatePaymentMethods(
-  payment_methods: PaymentMethodAllocation[] | undefined,
-): PaymentMethodAllocation[] {
-  if (!Array.isArray(payment_methods) || payment_methods.length === 0) {
-    throw new ValidationError("Sale must contain at least one payment method");
-  }
-
-  const methods = new Set<PaymentMethod>();
-
-  for (const allocation of payment_methods) {
-    if (!allocation.method || !ALLOWED_PAYMENT_METHODS.has(allocation.method)) {
-      throw new ValidationError(`Unsupported payment method: ${allocation.method}`);
-    }
-
-    if (typeof allocation.amount !== "string" || allocation.amount === "") {
-      throw new ValidationError(
-        `Payment method ${allocation.method} must include a valid amount`,
-      );
-    }
-
-    if (methods.has(allocation.method)) {
-      throw new ValidationError("Sale payment methods must be unique");
-    }
-
-    methods.add(allocation.method);
-  }
-
-  return payment_methods;
-}
-
-function aggregateQuantities(
-  items: { product_id: string; quantity: number }[],
-): Map<string, number> {
-  const totals = new Map<string, number>();
-
-  for (const item of items) {
-    totals.set(item.product_id, (totals.get(item.product_id) ?? 0) + item.quantity);
-  }
-
-  return totals;
-}
-
-function aggregateGroupQuantities(
-  groups: SaleSplitTicketGroupInput[],
-): Map<string, number> {
-  const totals = new Map<string, number>();
-
-  for (const group of groups) {
-    for (const item of group.items) {
-      totals.set(item.product_id, (totals.get(item.product_id) ?? 0) + item.quantity);
-    }
-  }
-
-  return totals;
-}
-
-function normalizeExplicitSplitTicketGroups(
-  groups: SaleSplitTicketGroupInput[] | undefined | null,
-  itemTotals: Map<string, number>,
-): SaleSplitTicketGroupInput[] {
-  if (!Array.isArray(groups) || groups.length !== 2) {
-    throw new ValidationError("Split ticket must contain exactly two groups");
-  }
-
-  const normalizedGroups = groups.map((group) => ({
-    label: group.label.trim(),
-    items: group.items.map((item) => ({
-      product_id: item.product_id,
-      quantity: item.quantity,
-    })),
-  }));
-
-  if (normalizedGroups.some((group) => group.label.length === 0)) {
-    throw new ValidationError("Split ticket group labels must not be empty");
-  }
-
-  if (new Set(normalizedGroups.map((group) => group.label)).size !== 2) {
-    throw new ValidationError("Split ticket group labels must be unique");
-  }
-
-  const allocatedTotals = aggregateGroupQuantities(normalizedGroups);
-
-  for (const productId of allocatedTotals.keys()) {
-    if (!itemTotals.has(productId)) {
-      throw new ValidationError(
-        `Split ticket references unknown product ${productId}`,
-      );
-    }
-  }
-
-  for (const [productId, expectedQuantity] of itemTotals.entries()) {
-    const allocatedQuantity = allocatedTotals.get(productId) ?? 0;
-    if (allocatedQuantity !== expectedQuantity) {
-      throw new ValidationError(
-        `Split ticket allocation for product ${productId} must match the ordered quantity`,
-      );
-    }
-  }
-
-  if (normalizedGroups[0].items.length === 0 || normalizedGroups[1].items.length === 0) {
-    throw new ValidationError("Split ticket groups must both contain allocations");
-  }
-
-  return normalizedGroups;
-}
-
-function normalizeItemSplitTicketGroups(
-  items: CreateSaleItemInput[],
-): SaleSplitTicketGroupInput[] {
-  if (!items.every((item) => item.split_ticket)) {
-    throw new ValidationError(
-      "Sale split ticket input must define split_ticket for every item when using item splits",
-    );
-  }
-
-  const groups: SaleSplitTicketGroupInput[] = [
-    { label: DEFAULT_SPLIT_GROUP_LABELS[0], items: [] },
-    { label: DEFAULT_SPLIT_GROUP_LABELS[1], items: [] },
-  ];
-  let hasGroupOneAllocations = false;
-  let hasGroupTwoAllocations = false;
-
-  for (const item of items) {
-    const splitTicket = item.split_ticket!;
-
-    if (
-      !Number.isInteger(splitTicket.group_1_quantity) ||
-      !Number.isInteger(splitTicket.group_2_quantity) ||
-      splitTicket.group_1_quantity < 0 ||
-      splitTicket.group_2_quantity < 0
-    ) {
-      throw new ValidationError(
-        `Split ticket allocation for product ${item.product_id!} must use non-negative integer quantities`,
-      );
-    }
-
-    if (splitTicket.group_1_quantity + splitTicket.group_2_quantity !== item.quantity) {
-      throw new ValidationError(
-        `Split ticket allocation for product ${item.product_id!} must match the item quantity`,
-      );
-    }
-
-    if (splitTicket.group_1_quantity > 0) {
-      groups[0].items.push({
-        product_id: item.product_id!,
-        quantity: splitTicket.group_1_quantity,
-      });
-      hasGroupOneAllocations = true;
-    }
-
-    if (splitTicket.group_2_quantity > 0) {
-      groups[1].items.push({
-        product_id: item.product_id!,
-        quantity: splitTicket.group_2_quantity,
-      });
-      hasGroupTwoAllocations = true;
-    }
-  }
-
-  if (!hasGroupOneAllocations || !hasGroupTwoAllocations) {
-    throw new ValidationError("Split ticket groups must both contain allocations");
-  }
-
-  return groups;
-}
-
-function resolveSplitTicketGroups(
-  items: CreateSaleItemInput[],
-  split_ticket_groups: SaleSplitTicketGroupInput[] | null | undefined,
-): SaleSplitTicketGroupInput[] | null {
-  const hasExplicitGroups = split_ticket_groups !== undefined && split_ticket_groups !== null;
-  const hasItemSplits = items.some((item) => item.split_ticket !== undefined);
-
-  if (!hasExplicitGroups && !hasItemSplits) {
-    return null;
-  }
-
-  if (hasExplicitGroups && hasItemSplits) {
-    throw new ValidationError(
-      "Sale split ticket input must use either split_ticket_groups or item split_ticket, not both",
-    );
-  }
-
-  const identifiedItems = items as { product_id: string; quantity: number }[];
-  const itemTotals = aggregateQuantities(identifiedItems);
-
-  if (hasExplicitGroups) {
-    return normalizeExplicitSplitTicketGroups(split_ticket_groups, itemTotals);
-  }
-
-  return normalizeItemSplitTicketGroups(items);
-}
 
 interface ResolvedManualDiscount {
   amount: Decimal;
@@ -371,6 +158,8 @@ function allocateManualDiscountAcrossInvoiceLines(
  */
 export class CreateSaleUseCase {
   private readonly logger = new Logger(CreateSaleUseCase.name);
+  private readonly inputNormalizer = new SaleInputNormalizer();
+  private readonly paymentPolicy = new SalePaymentPolicy();
 
   constructor(
     private readonly products: ProductRepositoryPort,
@@ -381,48 +170,26 @@ export class CreateSaleUseCase {
   ) {}
 
   async execute(input: CreateSaleInput): Promise<Sale> {
-    if (!input.items || input.items.length === 0) {
-      throw new ValidationError("Sale must contain at least one item");
-    }
+    const normalized = this.inputNormalizer.normalize(input);
+    const paymentMethods = this.paymentPolicy.validate(normalized.paymentMethods);
+    const splitTicketGroups = normalized.splitTicketGroups;
+    const invoiceRequested = normalized.invoiceRequested;
 
-    // Assign synthetic UUIDs to ad-hoc items so split-ticket resolution works
-    const adHocIndices = new Set<number>();
-    for (let i = 0; i < input.items.length; i++) {
-      const item = input.items[i];
-      if (!item.product_id) {
-        // Validate ad-hoc item has required fields
-        if (!item.name || item.name.trim() === "") {
-          throw new ValidationError("Ad-hoc sale items require a name");
-        }
-        if (!item.unit_price || item.unit_price === "") {
-          throw new ValidationError("Ad-hoc sale items require a unit_price");
-        }
-        const price = Money.parse(item.unit_price);
-        if (price.lte(0)) {
-          throw new ValidationError("Ad-hoc sale items require a positive unit_price");
-        }
-        item.product_id = randomUUID();
-        adHocIndices.add(i);
-      }
-    }
-
-    const paymentMethods = validatePaymentMethods(input.payment_methods);
-    const splitTicketGroups = resolveSplitTicketGroups(
-      input.items,
-      input.split_ticket_groups,
-    );
-
-    const invoiceRequested = input.invoice_requested ?? false;
     const saleItems: SaleItemCreateData[] = [];
     const loadedItems: { product: Product; quantity: number }[] = [];
     let total = Money.zero();
 
     // Only look up catalog product IDs (skip synthetic ad-hoc IDs)
-    const catalogProductIds = [...new Set(
-      input.items
-        .filter((_, i) => !adHocIndices.has(i))
-        .map((item) => item.product_id!),
-    )];
+    const catalogProductIds = [
+      ...new Set(
+        normalized.items
+          .filter(
+            (item): item is CatalogReferenceSaleItemInput =>
+              item.kind === "catalog-reference",
+          )
+          .map((item) => item.productId),
+      ),
+    ];
     const productsById = new Map(
       catalogProductIds.length > 0
         ? (await this.products.findByIdsForSale(catalogProductIds)).map((product) => [
@@ -440,12 +207,12 @@ export class CreateSaleUseCase {
     }[] = [];
     const manualItemIndices: number[] = [];
 
-    for (let i = 0; i < input.items.length; i++) {
-      const item = input.items[i];
+    for (let i = 0; i < normalized.items.length; i++) {
+      const item = normalized.items[i];
 
-      if (adHocIndices.has(i)) {
+      if (item.kind === "ad-hoc") {
         // --- Ad-hoc item ---
-        const unitPrice = Money.parse(item.unit_price!);
+        const unitPrice = Money.parse(item.unitPrice);
 
         // Ad-hoc items are always facturable with fixed 21% IVA
         if (invoiceRequested) {
@@ -455,7 +222,7 @@ export class CreateSaleUseCase {
         // Ad-hoc items skip product-level promotion resolution but are
         // included so store-wide promotions can apply
         resolutionItems.push({
-          productId: item.product_id!,
+          productId: item.syntheticProductId,
           unitPrice: Money.toString(unitPrice),
           quantity: item.quantity,
         });
@@ -463,9 +230,9 @@ export class CreateSaleUseCase {
         continue;
       }
 
-      const product = productsById.get(item.product_id!);
+      const product = productsById.get(item.productId);
       if (!product) {
-        throw new NotFoundError(`Product ${item.product_id} not found`);
+        throw new NotFoundError(`Product ${item.productId} not found`);
       }
 
       const isManual = product.pricing_mode === "manual";
@@ -477,12 +244,12 @@ export class CreateSaleUseCase {
             `Special product ${product.detalle} only allows quantity 1`,
           );
         }
-        if (!item.line_total || item.line_total === "") {
+        if (!item.lineTotal || item.lineTotal === "") {
           throw new ValidationError(
             `Special product ${product.detalle} requires a line_total amount`,
           );
         }
-        const lineTotal = Money.parse(item.line_total);
+        const lineTotal = Money.parse(item.lineTotal);
         if (lineTotal.lte(0)) {
           throw new ValidationError(
             `Special product ${product.detalle} requires a positive line_total`,
@@ -506,7 +273,7 @@ export class CreateSaleUseCase {
         loadedItems.push({ product, quantity: 1 });
       } else {
         // Fixed product: requires catalog price, rejects line_total override
-        if (item.line_total !== undefined && item.line_total !== null) {
+        if (item.lineTotal !== undefined && item.lineTotal !== null) {
           throw new ValidationError(
             `Product ${product.detalle} has a fixed price; line_total is not allowed`,
           );
@@ -560,15 +327,15 @@ export class CreateSaleUseCase {
     }
 
     // Second pass: build sale items
-    for (let i = 0; i < input.items.length; i++) {
-      const isAdHoc = adHocIndices.has(i);
+    for (let i = 0; i < normalized.items.length; i++) {
+      const item = normalized.items[i];
+      const isAdHoc = item.kind === "ad-hoc";
       const isManual = manualItemIndices.includes(i);
       const resItem = resolutionItems[i];
       const unitPrice = Money.parse(resItem.unitPrice);
 
       if (isAdHoc) {
         // Ad-hoc item: subtotal = unit_price × quantity, with promotions from store scope
-        const item = input.items[i];
         const grossSubtotal = Money.multiply(unitPrice, resItem.quantity);
         let discountAmount = Money.zero();
         let appliedPromotionId: string | null = null;
@@ -668,7 +435,7 @@ export class CreateSaleUseCase {
 
     const postPromotionSubtotal = total;
     const manualDiscount = resolveManualDiscount(
-      input.manual_discount,
+      normalized.manualDiscount,
       postPromotionSubtotal,
     );
     const finalTotal = Money.subtract(postPromotionSubtotal, manualDiscount.amount);
@@ -714,7 +481,7 @@ export class CreateSaleUseCase {
     const invoiceRequestedAt = invoiceRequested ? new Date() : null;
 
     const sale = await this.sales.create({
-      user_id: input.user_id,
+      user_id: normalized.userId,
       items: saleItems,
       payment_methods: paymentMethods,
       split_ticket_groups: splitTicketGroups,
@@ -733,12 +500,13 @@ export class CreateSaleUseCase {
 
     // Deduct stock for managed catalog items (ad-hoc items are skipped)
     const managedDeductions = new Map<string, number>();
-    for (let i = 0; i < input.items.length; i++) {
-      if (adHocIndices.has(i)) continue;
-      const product = productsById.get(input.items[i].product_id!);
+    for (let i = 0; i < normalized.items.length; i++) {
+      const item = normalized.items[i];
+      if (item.kind === "ad-hoc") continue;
+      const product = productsById.get(item.productId);
       if (!product || !product.maneja_stock) continue;
       const current = managedDeductions.get(product.id) ?? 0;
-      managedDeductions.set(product.id, current + input.items[i].quantity);
+      managedDeductions.set(product.id, current + item.quantity);
     }
 
     // Deterministic lock order: sort product UUIDs before locking balances
