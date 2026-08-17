@@ -14,87 +14,28 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import { JwtAuthGuard } from "../../auth/infrastructure/jwt-auth.guard";
-import { PromotionRepositoryPort } from "../../promotions/application/promotion.repository.port";
-import { InventoryRepositoryPort } from "../../inventory/application/inventory.repository.port";
 import {
   CreateProductDto,
   UpdateProductDto,
   ProductResponseDto,
   ProductCreateResponseDto,
-  ProductPromotionSummaryDto,
   ProductListQueryDto,
 } from "./product.dto";
 import { CreateProductUseCase } from "../application/create-product.use-case";
-import { ListProductsUseCase } from "../application/list-products.use-case";
-import { GetProductUseCase } from "../application/get-product.use-case";
 import { UpdateProductUseCase } from "../application/update-product.use-case";
 import { DeleteProductUseCase } from "../application/delete-product.use-case";
-import { GetProductByCodeUseCase } from "../application/get-product-by-code.use-case";
-import { Product } from "../domain/product.entity";
 import { ValidationError } from "../../../shared/errors/domain.error";
-import {
-  hasPaginationQuery,
-  normalizePagination,
-} from "../../../shared/read-model/pagination.dto";
 import { Page } from "../../../shared/read-model/page";
-import { argentinaNow } from "../../promotions/application/promotion-reference-date";
-
-function toProductResponse(
-  product: Product,
-  stockActual: number | null,
-  promotions?: ProductPromotionSummaryDto[] | null,
-  storePromotions?: ProductPromotionSummaryDto[] | null,
-): ProductResponseDto {
-  return {
-    id: product.id,
-    detalle: product.detalle,
-    costo_neto: product.costo_neto,
-    costo_final: product.costo_final,
-    iva: product.iva,
-    cambio_costo: product.cambio_costo,
-    cambio_precio: product.cambio_precio,
-    etiqueta: product.etiqueta,
-    facturable: product.facturable,
-    maneja_stock: product.maneja_stock,
-    codigos: product.codigos,
-    pricing_mode: product.pricing_mode,
-    is_protected: product.is_protected,
-    stock_actual: stockActual,
-    promotions: promotions ?? null,
-    store_promotions: storePromotions ?? null,
-    created_at: product.created_at,
-    updated_at: product.updated_at,
-  };
-}
-
-/**
- * Resolves the stock_actual value for a single product.
- * Returns null for non-stock products, balance value for tracked products,
- * or 0 for tracked products without a balance row yet.
- */
-async function resolveStockActual(
-  product: Product,
-  inventoryRepo: InventoryRepositoryPort,
-): Promise<number | null> {
-  if (!product.maneja_stock) {
-    return null;
-  }
-  const balance = await inventoryRepo.findBalance(product.id);
-  return balance?.stock_actual ?? 0;
-}
+import { ProductReadModelService } from "../application/product-read-model.service";
 
 @Controller("products")
 @UseGuards(JwtAuthGuard)
 export class ProductsController {
   constructor(
     private readonly createProduct: CreateProductUseCase,
-    private readonly listProducts: ListProductsUseCase,
-    private readonly getProduct: GetProductUseCase,
     private readonly updateProduct: UpdateProductUseCase,
     private readonly deleteProduct: DeleteProductUseCase,
-    private readonly getProductByCode: GetProductByCodeUseCase,
-    private readonly promotionRepo: PromotionRepositoryPort,
-    private readonly inventoryRepo: InventoryRepositoryPort,
+    private readonly productReadModel: ProductReadModelService,
   ) {}
 
   @Post()
@@ -114,39 +55,7 @@ export class ProductsController {
   async list(
     @Query() query: ProductListQueryDto,
   ): Promise<ProductResponseDto[] | Page<ProductResponseDto>> {
-    const now = argentinaNow();
-
-    if (hasPaginationQuery(query)) {
-      const page = await this.listProducts.executePage(
-        normalizePagination(query, { search: query.search }),
-      );
-      const productIds = page.data.map((p) => p.id);
-      const balances = await this.inventoryRepo.findBalancesByIds(productIds);
-      const { promotionsById, storePromotions } =
-        await this.loadPromotionsMap(productIds, now);
-      const storeList =
-        storePromotions.length > 0 ? storePromotions : null;
-      const mapped = page.data.map((p) => {
-        const stockActual = p.maneja_stock
-          ? balances.get(p.id)?.stock_actual ?? 0
-          : null;
-        return toProductResponse(p, stockActual, promotionsById.get(p.id), storeList);
-      });
-      return { data: mapped, meta: page.meta } as Page<ProductResponseDto>;
-    }
-    const products = await this.listProducts.execute({ search: query.search });
-    const productIds = products.map((p) => p.id);
-    const balances = await this.inventoryRepo.findBalancesByIds(productIds);
-    const { promotionsById, storePromotions } =
-      await this.loadPromotionsMap(productIds, now);
-    const storeList =
-      storePromotions.length > 0 ? storePromotions : null;
-    return products.map((p) => {
-      const stockActual = p.maneja_stock
-        ? balances.get(p.id)?.stock_actual ?? 0
-        : null;
-      return toProductResponse(p, stockActual, promotionsById.get(p.id), storeList);
-    });
+    return this.productReadModel.list(query);
   }
 
   @Get("code/:code")
@@ -155,26 +64,14 @@ export class ProductsController {
     if (trimmedCode.length === 0) {
       throw new ValidationError("Product code must not be empty");
     }
-    const product = await this.getProductByCode.execute(trimmedCode);
-    const { promotionsById, storePromotions } =
-      await this.loadPromotionsMap([product.id], argentinaNow());
-    const storeList =
-      storePromotions.length > 0 ? storePromotions : null;
-    const stockActual = await resolveStockActual(product, this.inventoryRepo);
-    return toProductResponse(product, stockActual, promotionsById.get(product.id), storeList);
+    return this.productReadModel.getByCode(trimmedCode);
   }
 
   @Get(":id")
   async get(
     @Param("id", ParseUUIDPipe) id: string,
   ): Promise<ProductResponseDto> {
-    const product = await this.getProduct.execute(id);
-    const { promotionsById, storePromotions } =
-      await this.loadPromotionsMap([id], argentinaNow());
-    const storeList =
-      storePromotions.length > 0 ? storePromotions : null;
-    const stockActual = await resolveStockActual(product, this.inventoryRepo);
-    return toProductResponse(product, stockActual, promotionsById.get(id), storeList);
+    return this.productReadModel.get(id);
   }
 
   @Put(":id")
@@ -182,57 +79,13 @@ export class ProductsController {
     @Param("id", ParseUUIDPipe) id: string,
     @Body() dto: UpdateProductDto,
   ): Promise<ProductResponseDto> {
-    const product = await this.updateProduct.execute(id, dto);
-    const { promotionsById, storePromotions } =
-      await this.loadPromotionsMap([id], argentinaNow());
-    const storeList =
-      storePromotions.length > 0 ? storePromotions : null;
-    const stockActual = await resolveStockActual(product, this.inventoryRepo);
-    return toProductResponse(product, stockActual, promotionsById.get(id), storeList);
+    const updated = await this.updateProduct.execute(id, dto);
+    return this.productReadModel.enrich(updated);
   }
 
   @Delete(":id")
   @HttpCode(HttpStatus.NO_CONTENT)
   async delete(@Param("id", ParseUUIDPipe) id: string): Promise<void> {
     await this.deleteProduct.execute(id);
-  }
-
-  private async loadPromotionsMap(
-    productIds: string[],
-    now: Date,
-  ): Promise<{
-    promotionsById: Map<string, ProductPromotionSummaryDto[]>;
-    storePromotions: ProductPromotionSummaryDto[];
-  }> {
-    const promotions = await this.promotionRepo.findActiveByProductIds(
-      productIds,
-      now,
-    );
-    const promotionsById = new Map<string, ProductPromotionSummaryDto[]>();
-    const storePromotions: ProductPromotionSummaryDto[] = [];
-
-    for (const promo of promotions) {
-      const dto: ProductPromotionSummaryDto = {
-        id: promo.id,
-        name: promo.name,
-        description: promo.description ?? null,
-        scope: promo.scope,
-        type: promo.type,
-        discount_percent: promo.discount_percent ?? null,
-        start_date: promo.start_date?.toISOString() ?? null,
-        end_date: promo.end_date?.toISOString() ?? null,
-        weekdays: promo.weekdays ?? null,
-      };
-
-      if (promo.scope === "store") {
-        storePromotions.push(dto);
-      } else if (promo.product_id) {
-        const list = promotionsById.get(promo.product_id) ?? [];
-        list.push(dto);
-        promotionsById.set(promo.product_id, list);
-      }
-    }
-
-    return { promotionsById, storePromotions };
   }
 }
