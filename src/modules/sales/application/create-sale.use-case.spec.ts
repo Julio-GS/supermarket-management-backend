@@ -6,6 +6,9 @@ import { SaleRepositoryPort } from "./sale.repository.port";
 import { InventoryRepositoryPort } from "../../inventory/application/inventory.repository.port";
 import { IssueArcaInvoiceUseCase } from "./issue-arca-invoice.use-case";
 import { PromotionResolverService } from "../../promotions/application/promotion-resolver.service";
+import { SaleItemResolver } from "./sale-item-resolver";
+import { SaleFiscalOrchestrator } from "./sale-fiscal-orchestrator";
+import { PostPersistenceInventoryPolicy } from "./post-persistence-inventory-policy";
 import {
   NotFoundError,
   ValidationError,
@@ -2163,6 +2166,242 @@ describe("CreateSaleUseCase", () => {
         { line_total: "27.00", iva_rate: "21.00" },
         { line_total: "36.00", iva_rate: "21.00" },
       ]);
+    });
+
+    describe("thin orchestrator seam coordination", () => {
+      it("coordinates extracted seams in exact order and passes assembled payload to repository", async () => {
+        const callOrder: string[] = [];
+        const mockItemResolver = {
+          resolve: jest.fn().mockImplementation(async () => {
+            callOrder.push("itemResolver.resolve");
+            return {
+              lines: [
+                {
+                  kind: "catalog-fixed",
+                  lineId: "prod-1",
+                  originalIndex: 0,
+                  product: buildProduct({ id: "prod-1", maneja_stock: true }),
+                  quantity: 2,
+                  unitPrice: "100.00",
+                  promotionEligible: true,
+                  stockManaged: true,
+                  facturable: true,
+                  ivaForPersistence: null,
+                },
+              ],
+              promotionsByLineId: new Map(),
+            };
+          }),
+        } as unknown as SaleItemResolver;
+
+        const mockFiscalOrchestrator = {
+          issueIfRequested: jest.fn().mockImplementation(async () => {
+            callOrder.push("fiscalOrchestrator.issueIfRequested");
+            return {
+              invoiceStatus: "none",
+              invoiceRequestedAt: null,
+              fiscalFields: { cae: null, cae_vto: null, cbte_nro: null, cbte_tipo: null, pto_vta: null },
+            };
+          }),
+        } as unknown as SaleFiscalOrchestrator;
+
+        const mockInventoryPolicy = {
+          deductAfterSalePersisted: jest.fn().mockImplementation(async () => {
+            callOrder.push("inventoryPolicy.deductAfterSalePersisted");
+          }),
+        } as unknown as PostPersistenceInventoryPolicy;
+
+        sales.create.mockImplementation(async () => {
+          callOrder.push("sales.create");
+          return buildSale({ id: "custom-sale-id", total: "200.00" });
+        });
+
+        const customUseCase = new CreateSaleUseCase(
+          products,
+          sales,
+          inventory as any,
+          issueInvoice as any,
+          promotionResolver as any,
+          mockItemResolver,
+          mockFiscalOrchestrator,
+          mockInventoryPolicy,
+        );
+
+        const result = await customUseCase.execute({
+          user_id: "user-123",
+          items: [{ product_id: "prod-1", quantity: 2 }],
+          payment_methods: [{ method: "cash", amount: "200.00" }],
+        });
+
+        expect(result.id).toBe("custom-sale-id");
+        expect(callOrder).toEqual([
+          "itemResolver.resolve",
+          "fiscalOrchestrator.issueIfRequested",
+          "sales.create",
+          "inventoryPolicy.deductAfterSalePersisted",
+        ]);
+        expect(mockItemResolver.resolve).toHaveBeenCalledTimes(1);
+        expect(mockFiscalOrchestrator.issueIfRequested).toHaveBeenCalledWith(
+          expect.objectContaining({
+            invoiceRequested: false,
+          }),
+        );
+        expect(sales.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            user_id: "user-123",
+            total: "200.00",
+            invoice_status: "none",
+          }),
+        );
+        expect(mockInventoryPolicy.deductAfterSalePersisted).toHaveBeenCalledWith({
+          saleId: "custom-sale-id",
+          lines: [{ productId: "prod-1", quantity: 2, stockManaged: true }],
+        });
+      });
+
+      it("coordinates seams with invoice requested and manual discount passed to fiscal orchestrator", async () => {
+        const mockItemResolver = {
+          resolve: jest.fn().mockResolvedValue({
+            lines: [
+              {
+                kind: "catalog-fixed",
+                lineId: "prod-1",
+                originalIndex: 0,
+                product: buildProduct({ id: "prod-1", costo_final: "100.00", maneja_stock: true }),
+                quantity: 1,
+                unitPrice: "100.00",
+                promotionEligible: true,
+                stockManaged: true,
+                facturable: true,
+                ivaForPersistence: "21.00",
+              },
+            ],
+            promotionsByLineId: new Map(),
+          }),
+        } as unknown as SaleItemResolver;
+
+        const mockFiscalOrchestrator = {
+          issueIfRequested: jest.fn().mockResolvedValue({
+            invoiceStatus: "issued",
+            invoiceRequestedAt: new Date("2026-08-17T00:00:00.000Z"),
+            fiscalFields: {
+              cae: "74154876254185",
+              cae_vto: "20240111",
+              cbte_nro: 1,
+              cbte_tipo: 6,
+              pto_vta: 1,
+            },
+          }),
+        } as unknown as SaleFiscalOrchestrator;
+
+        const mockInventoryPolicy = {
+          deductAfterSalePersisted: jest.fn().mockResolvedValue(undefined),
+        } as unknown as PostPersistenceInventoryPolicy;
+
+        sales.create.mockResolvedValue(
+          buildSale({
+            id: "fiscal-sale-id",
+            total: "90.00",
+            invoice_status: "issued",
+            cae: "74154876254185",
+          }),
+        );
+
+        const customUseCase = new CreateSaleUseCase(
+          products,
+          sales,
+          inventory as any,
+          issueInvoice as any,
+          promotionResolver as any,
+          mockItemResolver,
+          mockFiscalOrchestrator,
+          mockInventoryPolicy,
+        );
+
+        const result = await customUseCase.execute({
+          user_id: "user-123",
+          items: [{ product_id: "prod-1", quantity: 1 }],
+          invoice_requested: true,
+          manual_discount: { modality: "fixed", amount: "10.00" },
+          payment_methods: [{ method: "cash", amount: "90.00" }],
+        });
+
+        expect(result.id).toBe("fiscal-sale-id");
+        expect(mockFiscalOrchestrator.issueIfRequested).toHaveBeenCalledWith(
+          expect.objectContaining({
+            invoiceRequested: true,
+          }),
+        );
+        expect(sales.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            invoice_status: "issued",
+            cae: "74154876254185",
+            total: "90.00",
+            manual_discount_amount: "10.00",
+          }),
+        );
+      });
+
+      it("stops delegation early when input normalization or payment validation fails", async () => {
+        const mockItemResolver = {
+          resolve: jest.fn(),
+        } as unknown as SaleItemResolver;
+        const mockFiscalOrchestrator = {
+          issueIfRequested: jest.fn(),
+        } as unknown as SaleFiscalOrchestrator;
+        const mockInventoryPolicy = {
+          deductAfterSalePersisted: jest.fn(),
+        } as unknown as PostPersistenceInventoryPolicy;
+
+        const customUseCase = new CreateSaleUseCase(
+          products,
+          sales,
+          inventory as any,
+          issueInvoice as any,
+          promotionResolver as any,
+          mockItemResolver,
+          mockFiscalOrchestrator,
+          mockInventoryPolicy,
+        );
+
+        await expect(
+          customUseCase.execute({
+            user_id: "user-123",
+            items: [],
+            payment_methods: [{ method: "cash", amount: "100.00" }],
+          }),
+        ).rejects.toBeInstanceOf(ValidationError);
+
+        expect(mockItemResolver.resolve).not.toHaveBeenCalled();
+        expect(mockFiscalOrchestrator.issueIfRequested).not.toHaveBeenCalled();
+        expect(sales.create).not.toHaveBeenCalled();
+        expect(mockInventoryPolicy.deductAfterSalePersisted).not.toHaveBeenCalled();
+      });
+
+      it("instantiates default seams when optional seam parameters are omitted", async () => {
+        const product = buildProduct({ id: "prod-default", maneja_stock: false });
+        products.findByIdsForSale.mockResolvedValue([product]);
+        sales.create.mockResolvedValue(buildSale({ id: "sale-default", total: "121.00" }));
+
+        const defaultUseCase = new CreateSaleUseCase(
+          products,
+          sales,
+          inventory as any,
+          issueInvoice as any,
+          promotionResolver as any,
+        );
+
+        const result = await defaultUseCase.execute({
+          user_id: "user-default",
+          items: [{ product_id: "prod-default", quantity: 1 }],
+          payment_methods: [{ method: "cash", amount: "121.00" }],
+        });
+
+        expect(result.id).toBe("sale-default");
+        expect(products.findByIdsForSale).toHaveBeenCalledWith(["prod-default"]);
+        expect(sales.create).toHaveBeenCalled();
+        expect(inventory.adjustBalance).not.toHaveBeenCalled();
+      });
     });
   });
 });

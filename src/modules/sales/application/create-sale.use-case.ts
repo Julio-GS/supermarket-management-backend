@@ -1,4 +1,4 @@
-import { Injectable, Logger, Optional } from "@nestjs/common";
+import { Injectable, Optional } from "@nestjs/common";
 import { ProductRepositoryPort } from "../../products/application/product.repository.port";
 import { SaleRepositoryPort } from "./sale.repository.port";
 import { InventoryRepositoryPort } from "../../inventory/application/inventory.repository.port";
@@ -71,24 +71,22 @@ export class CreateSaleUseCase {
   async execute(input: CreateSaleInput): Promise<Sale> {
     const normalized = this.inputNormalizer.normalize(input);
     const paymentMethods = this.paymentPolicy.validate(normalized.paymentMethods);
-    const invoiceRequested = normalized.invoiceRequested;
-
     const resolved = await this.itemResolver.resolve(normalized);
     const pricing = this.pricingCalculator.price({
       resolved,
       manualDiscount: normalized.manualDiscount,
-      invoiceRequested,
+      invoiceRequested: normalized.invoiceRequested,
     });
 
     const fiscal = await this.fiscalOrchestrator.issueIfRequested({
-      invoiceRequested,
+      invoiceRequested: normalized.invoiceRequested,
       saleItems: pricing.saleItems,
       resolvedLines: resolved.lines,
       postPromotionSubtotal: pricing.postPromotionSubtotal,
       manualDiscountAmount: pricing.manualDiscount.amount,
     });
 
-    const saleCreateInput = this.persistenceAssembler.assemble({
+    const saleInput = this.persistenceAssembler.assemble({
       userId: normalized.userId,
       pricing,
       paymentMethods,
@@ -96,7 +94,7 @@ export class CreateSaleUseCase {
       fiscal,
     });
 
-    const sale = await this.sales.create(saleCreateInput);
+    const sale = await this.sales.create(saleInput);
 
     await this.inventoryPolicy.deductAfterSalePersisted({
       saleId: sale.id,
