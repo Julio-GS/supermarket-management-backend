@@ -1895,4 +1895,274 @@ describe("CreateSaleUseCase", () => {
       );
     });
   });
+
+  describe("manual discount", () => {
+    it("applies a fixed manual discount and persists the final total", async () => {
+      const product = buildProduct({ costo_final: "100.00" });
+      products.findByIdsForSale.mockResolvedValue([product]);
+      sales.create.mockResolvedValue(buildSale({ total: "80.00" }));
+
+      const result = await useCase.execute({
+        user_id: "user-id",
+        items: [{ product_id: product.id, quantity: 1 }],
+        payment_methods: [{ method: "cash", amount: "80.00" }],
+        manual_discount: { modality: "fixed", amount: "20.00" },
+      });
+
+      expect(result.total).toBe("80.00");
+      expect(sales.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          total: "80.00",
+          manual_discount_amount: "20.00",
+          manual_discount_modality: "fixed",
+          manual_discount_percentage: null,
+        }),
+      );
+    });
+
+    it("recalculates percentage discounts and persists the amount", async () => {
+      const product = buildProduct({ costo_final: "150.00" });
+      products.findByIdsForSale.mockResolvedValue([product]);
+      sales.create.mockResolvedValue(buildSale({ total: "135.00" }));
+
+      await useCase.execute({
+        user_id: "user-id",
+        items: [{ product_id: product.id, quantity: 1 }],
+        payment_methods: [{ method: "cash", amount: "135.00" }],
+        manual_discount: { modality: "percentage", percentage: "10", amount: "15.00" },
+      });
+
+      expect(sales.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          total: "135.00",
+          manual_discount_amount: "15.00",
+          manual_discount_modality: "percentage",
+          manual_discount_percentage: "10.00",
+        }),
+      );
+    });
+
+    it("rejects a percentage discount whose amount mismatches the recalculation", async () => {
+      const product = buildProduct({ costo_final: "150.00" });
+      products.findByIdsForSale.mockResolvedValue([product]);
+
+      await expect(
+        useCase.execute({
+          user_id: "user-id",
+          items: [{ product_id: product.id, quantity: 1 }],
+          payment_methods: [{ method: "cash", amount: "135.00" }],
+          manual_discount: { modality: "percentage", percentage: "10", amount: "20.00" },
+        }),
+      ).rejects.toBeInstanceOf(ValidationError);
+
+      expect(sales.create).not.toHaveBeenCalled();
+    });
+
+    it("rounds percentage discounts half-up within ±0.01 tolerance", async () => {
+      const product = buildProduct({ costo_final: "33.33" });
+      products.findByIdsForSale.mockResolvedValue([product]);
+      sales.create.mockResolvedValue(buildSale({ total: "22.33" }));
+
+      await useCase.execute({
+        user_id: "user-id",
+        items: [{ product_id: product.id, quantity: 1 }],
+        payment_methods: [{ method: "cash", amount: "22.33" }],
+        manual_discount: { modality: "percentage", percentage: "33", amount: "11.00" },
+      });
+
+      expect(sales.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          total: "22.33",
+          manual_discount_amount: "11.00",
+        }),
+      );
+    });
+
+    it("rejects negative manual discounts", async () => {
+      const product = buildProduct({ costo_final: "100.00" });
+      products.findByIdsForSale.mockResolvedValue([product]);
+
+      await expect(
+        useCase.execute({
+          user_id: "user-id",
+          items: [{ product_id: product.id, quantity: 1 }],
+          payment_methods: [{ method: "cash", amount: "100.00" }],
+          manual_discount: { modality: "fixed", amount: "-5.00" },
+        }),
+      ).rejects.toBeInstanceOf(ValidationError);
+
+      expect(sales.create).not.toHaveBeenCalled();
+    });
+
+    it("rejects a fixed discount that exceeds the subtotal", async () => {
+      const product = buildProduct({ costo_final: "50.00" });
+      products.findByIdsForSale.mockResolvedValue([product]);
+
+      await expect(
+        useCase.execute({
+          user_id: "user-id",
+          items: [{ product_id: product.id, quantity: 1 }],
+          payment_methods: [{ method: "cash", amount: "50.00" }],
+          manual_discount: { modality: "fixed", amount: "60.00" },
+        }),
+      ).rejects.toBeInstanceOf(ValidationError);
+
+      expect(sales.create).not.toHaveBeenCalled();
+    });
+
+    it("normalizes an effective-zero discount to a null modality", async () => {
+      const product = buildProduct({ costo_final: "100.00" });
+      products.findByIdsForSale.mockResolvedValue([product]);
+      sales.create.mockResolvedValue(buildSale({ total: "100.00" }));
+
+      await useCase.execute({
+        user_id: "user-id",
+        items: [{ product_id: product.id, quantity: 1 }],
+        payment_methods: [{ method: "cash", amount: "100.00" }],
+        manual_discount: { modality: "fixed", amount: "0" },
+      });
+
+      expect(sales.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          total: "100.00",
+          manual_discount_amount: "0.00",
+          manual_discount_modality: null,
+          manual_discount_percentage: null,
+        }),
+      );
+    });
+
+    it("persists omitted discounts as confirmed zero", async () => {
+      const product = buildProduct({ costo_final: "100.00" });
+      products.findByIdsForSale.mockResolvedValue([product]);
+      sales.create.mockResolvedValue(buildSale({ total: "100.00" }));
+
+      await useCase.execute({
+        user_id: "user-id",
+        items: [{ product_id: product.id, quantity: 1 }],
+        payment_methods: [{ method: "cash", amount: "100.00" }],
+      });
+
+      expect(sales.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          total: "100.00",
+          manual_discount_amount: "0.00",
+          manual_discount_modality: null,
+          manual_discount_percentage: null,
+        }),
+      );
+    });
+
+    it("allocates a manual discount across invoice lines to match the final total", async () => {
+      const productA = buildProduct({ id: "prod-a", costo_final: "50.00" });
+      const productB = buildProduct({ id: "prod-b", costo_final: "50.00" });
+      products.findByIdsForSale.mockResolvedValue([productA, productB]);
+      issueInvoice.issue.mockResolvedValue({
+        cae: "74154876254185",
+        cae_vto: "20240111",
+        cbte_nro: 1,
+        cbte_tipo: 6,
+        pto_vta: 1,
+      });
+      sales.create.mockResolvedValue(
+        buildSale({
+          invoice_status: "issued",
+          cae: "74154876254185",
+          total: "90.00",
+        }),
+      );
+
+      await useCase.execute({
+        user_id: "user-id",
+        items: [
+          { product_id: "prod-a", quantity: 1 },
+          { product_id: "prod-b", quantity: 1 },
+        ],
+        invoice_requested: true,
+        payment_methods: [{ method: "cash", amount: "90.00" }],
+        manual_discount: { modality: "fixed", amount: "10.00" },
+      });
+
+      expect(issueInvoice.issue).toHaveBeenCalledWith([
+        { line_total: "45.00", iva_rate: "21.00" },
+        { line_total: "45.00", iva_rate: "21.00" },
+      ]);
+      expect(sales.create).toHaveBeenCalledWith(
+        expect.objectContaining({ total: "90.00" }),
+      );
+    });
+
+    it("accepts a percentage amount within ±0.01 of the backend recalculation", async () => {
+      const product = buildProduct({ costo_final: "150.00" });
+      products.findByIdsForSale.mockResolvedValue([product]);
+      sales.create.mockResolvedValue(buildSale({ total: "135.00" }));
+
+      await useCase.execute({
+        user_id: "user-id",
+        items: [{ product_id: product.id, quantity: 1 }],
+        payment_methods: [{ method: "cash", amount: "135.00" }],
+        manual_discount: { modality: "percentage", percentage: "10", amount: "14.99" },
+      });
+
+      expect(sales.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          total: "135.00",
+          manual_discount_amount: "15.00",
+          manual_discount_modality: "percentage",
+          manual_discount_percentage: "10.00",
+        }),
+      );
+    });
+
+    it("rejects a percentage amount outside ±0.01 of the backend recalculation", async () => {
+      const product = buildProduct({ costo_final: "150.00" });
+      products.findByIdsForSale.mockResolvedValue([product]);
+
+      await expect(
+        useCase.execute({
+          user_id: "user-id",
+          items: [{ product_id: product.id, quantity: 1 }],
+          payment_methods: [{ method: "cash", amount: "135.00" }],
+          manual_discount: { modality: "percentage", percentage: "10", amount: "14.98" },
+        }),
+      ).rejects.toBeInstanceOf(ValidationError);
+
+      expect(sales.create).not.toHaveBeenCalled();
+    });
+
+    it("allocates a discount across three invoice lines with an exact total", async () => {
+      const productA = buildProduct({ id: "prod-a", costo_final: "30.00" });
+      const productB = buildProduct({ id: "prod-b", costo_final: "30.00" });
+      const productC = buildProduct({ id: "prod-c", costo_final: "40.00" });
+      products.findByIdsForSale.mockResolvedValue([productA, productB, productC]);
+      issueInvoice.issue.mockResolvedValue({
+        cae: "74154876254185",
+        cae_vto: "20240111",
+        cbte_nro: 1,
+        cbte_tipo: 6,
+        pto_vta: 1,
+      });
+      sales.create.mockResolvedValue(
+        buildSale({ invoice_status: "issued", total: "90.00" }),
+      );
+
+      await useCase.execute({
+        user_id: "user-id",
+        items: [
+          { product_id: "prod-a", quantity: 1 },
+          { product_id: "prod-b", quantity: 1 },
+          { product_id: "prod-c", quantity: 1 },
+        ],
+        invoice_requested: true,
+        payment_methods: [{ method: "cash", amount: "90.00" }],
+        manual_discount: { modality: "fixed", amount: "10.00" },
+      });
+
+      expect(issueInvoice.issue).toHaveBeenCalledWith([
+        { line_total: "27.00", iva_rate: "21.00" },
+        { line_total: "27.00", iva_rate: "21.00" },
+        { line_total: "36.00", iva_rate: "21.00" },
+      ]);
+    });
+  });
 });

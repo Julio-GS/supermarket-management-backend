@@ -1,4 +1,5 @@
 export type InvoiceStatus = "none" | "issued" | "failed" | "issuing" | "ambiguous";
+export type ManualDiscountModality = "fixed" | "percentage";
 export const PAYMENT_METHODS = ["cash", "transfer", "card", "qr"] as const;
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 
@@ -49,6 +50,9 @@ export class Sale {
   items!: SaleItem[];
   split_ticket_groups?: SaleSplitTicketGroup[] | null;
   invoice_status!: InvoiceStatus;
+  manual_discount_amount!: string | null;
+  manual_discount_modality!: ManualDiscountModality | null;
+  manual_discount_percentage!: string | null;
   cae?: string | null;
   cae_vto?: string | null;
   cbte_nro?: number | null;

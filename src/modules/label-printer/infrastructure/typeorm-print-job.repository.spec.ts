@@ -427,6 +427,179 @@ describe("TypeOrmPrintJobRepository", () => {
     });
   });
 
+  describe("claimBatchContinuing", () => {
+    let txQuery: jest.Mock;
+
+    beforeEach(() => {
+      txQuery = jest.fn();
+      mockProductRepo.manager = {
+        transaction: jest.fn(
+          async (cb: (m: { query: jest.Mock }) => Promise<unknown>) =>
+            cb({ query: txQuery }),
+        ),
+      };
+    });
+
+    function candidate(id: string, createdAt: Date) {
+      return { id, created_at: createdAt };
+    }
+
+    function claimedRow(id: string, createdAt: Date): Record<string, unknown> {
+      const now = new Date();
+      return {
+        id,
+        status: "claimed",
+        claimed_by: "caja-1",
+        claimed_at: now,
+        lease_expires_at: new Date(now.getTime() + 60_000),
+        product_id: "p1",
+        sku: "SKU",
+        product_name: "P",
+        sale_price: "10.00",
+        created_at: createdAt,
+        updated_at: now,
+        completed_at: null,
+        failed_at: null,
+        fail_reason: null,
+        idempotency_key: null,
+        source: null,
+      };
+    }
+
+    it("selects limit+1 candidates with tuple predicate and FOR UPDATE SKIP LOCKED", async () => {
+      txQuery.mockImplementation(async (sql: string) =>
+        /^\s*SELECT/.test(sql) ? [] : [[], 0],
+      );
+
+      await repo.claimBatchContinuing({
+        installation: "caja-1",
+        leaseExpiresAt: new Date(),
+        limit: 45,
+        after: { created_at: new Date("2026-01-01T00:00:00Z"), id: "some-id" },
+      });
+
+      const selectSql = txQuery.mock.calls[0][0] as string;
+      const selectParams = txQuery.mock.calls[0][1] as unknown[];
+      expect(selectSql).toContain("FOR UPDATE SKIP LOCKED");
+      expect(selectSql).toContain("ORDER BY created_at ASC, id ASC");
+      expect(selectSql).toContain("LIMIT $1");
+      expect(selectSql).toContain("(created_at, id) >");
+      expect(selectParams[0]).toBe(46); // limit + 1
+    });
+
+    it("updates only the first limit rows and never the lookahead", async () => {
+      const candidates = Array.from({ length: 46 }, (_, i) =>
+        candidate(`job-${i + 1}`, new Date(2026, 0, 1, 0, 0, i)),
+      );
+      txQuery.mockImplementationOnce(async () => candidates);
+      txQuery.mockImplementationOnce(async () => [
+        candidates.slice(0, 45).map((c) => claimedRow(c.id, c.created_at)),
+        45,
+      ]);
+
+      const result = await repo.claimBatchContinuing({
+        installation: "caja-1",
+        leaseExpiresAt: new Date(),
+        limit: 45,
+      });
+
+      expect(result.jobs).toHaveLength(45);
+      expect(result.hasMore).toBe(true);
+      const updateParams = txQuery.mock.calls[1][1] as unknown[];
+      expect(updateParams).toContain("job-45");
+      expect(updateParams).not.toContain("job-46");
+    });
+
+    it("sets hasMore false when there are no more than limit candidates", async () => {
+      const c = candidate("job-1", new Date("2026-01-01"));
+      txQuery.mockImplementationOnce(async () => [c]);
+      txQuery.mockImplementationOnce(async () => [
+        [claimedRow(c.id, c.created_at)],
+        1,
+      ]);
+
+      const result = await repo.claimBatchContinuing({
+        installation: "caja-1",
+        leaseExpiresAt: new Date(),
+        limit: 45,
+      });
+
+      expect(result.hasMore).toBe(false);
+      expect(result.jobs).toHaveLength(1);
+    });
+
+    it("throws when the update count does not match the claimed ids", async () => {
+      const c1 = candidate("job-1", new Date("2026-01-01"));
+      const c2 = candidate("job-2", new Date("2026-01-02"));
+      txQuery.mockImplementationOnce(async () => [c1, c2]);
+      txQuery.mockImplementationOnce(async () => [
+        [claimedRow(c1.id, c1.created_at)],
+        1,
+      ]);
+
+      await expect(
+        repo.claimBatchContinuing({
+          installation: "caja-1",
+          leaseExpiresAt: new Date(),
+          limit: 45,
+        }),
+      ).rejects.toThrow(/update count mismatch/i);
+    });
+
+    it("passes the immutable flow deadline and installation to the UPDATE", async () => {
+      const c = candidate("job-1", new Date("2026-01-01"));
+      txQuery.mockImplementationOnce(async () => [c]);
+      txQuery.mockImplementationOnce(async () => [
+        [claimedRow(c.id, c.created_at)],
+        1,
+      ]);
+      const leaseExpiresAt = new Date("2030-01-01T00:00:00Z");
+
+      await repo.claimBatchContinuing({
+        installation: "caja-1",
+        leaseExpiresAt,
+        limit: 45,
+      });
+
+      const updateParams = txQuery.mock.calls[1][1] as unknown[];
+      expect(updateParams).toContain("caja-1");
+      expect(updateParams).toContain(leaseExpiresAt);
+    });
+
+    it("sorts returned claimed rows by created_at ASC, id ASC", async () => {
+      const c1 = candidate("job-1", new Date("2026-01-01"));
+      const c2 = candidate("job-2", new Date("2026-01-02"));
+      txQuery.mockImplementationOnce(async () => [c1, c2]);
+      txQuery.mockImplementationOnce(async () => [
+        [claimedRow(c2.id, c2.created_at), claimedRow(c1.id, c1.created_at)],
+        2,
+      ]);
+
+      const result = await repo.claimBatchContinuing({
+        installation: "caja-1",
+        leaseExpiresAt: new Date(),
+        limit: 45,
+      });
+
+      expect(result.jobs[0].id).toBe("job-1");
+      expect(result.jobs[1].id).toBe("job-2");
+    });
+
+    it("returns empty result when no candidates exist", async () => {
+      txQuery.mockImplementation(async (sql: string) =>
+        /^\s*SELECT/.test(sql) ? [] : [[], 0],
+      );
+
+      const result = await repo.claimBatchContinuing({
+        installation: "caja-1",
+        leaseExpiresAt: new Date(),
+        limit: 45,
+      });
+
+      expect(result).toEqual({ jobs: [], hasMore: false });
+    });
+  });
+
   describe("cancelPendingByProduct", () => {
     it("marks stale auto jobs as superseded, not failed", async () => {
       const mockQb = {
@@ -961,6 +1134,148 @@ describe("TypeOrmPrintJobRepository", () => {
       const result = await repo.findById("missing");
 
       expect(result).toBeNull();
+    });
+  });
+
+  describe("block", () => {
+    it("blocks a claimed job via the atomic predicate and maps audit fields", async () => {
+      const now = new Date("2026-03-01T12:00:00Z");
+      const returnedRow = {
+        id: "j1",
+        status: "blocked_for_review",
+        claimed_by: "caja-1",
+        blocked_reason: "Manual review",
+        blocked_by: "caja-1",
+        blocked_at: now,
+        product_id: "p1",
+        sku: "779",
+        product_name: "Leche",
+        sale_price: "1250.50",
+        claimed_at: now,
+        lease_expires_at: new Date(now.getTime() + 30000),
+        completed_at: null,
+        failed_at: null,
+        fail_reason: null,
+        idempotency_key: null,
+        source: null,
+        created_at: now,
+        updated_at: now,
+      };
+      const mockQb = {
+        update: jest.fn().mockReturnThis(),
+        set: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        returning: jest.fn().mockReturnThis(),
+        execute: jest.fn().mockResolvedValue({ affected: 1, raw: [returnedRow] }),
+      };
+      mockProductRepo.createQueryBuilder.mockReturnValue(mockQb);
+
+      const result = await repo.block("j1", "caja-1", "Manual review");
+
+      expect(result).not.toBeNull();
+      expect(result!.status).toBe("blocked_for_review");
+      expect(result!.blocked_reason).toBe("Manual review");
+      expect(result!.blocked_by).toBe("caja-1");
+      expect(result!.blocked_at).toEqual(now);
+      expect(mockQb.returning).toHaveBeenCalledWith("*");
+    });
+
+    it("adds claimed-only + same-installation + valid-lease predicates", async () => {
+      const mockQb = {
+        update: jest.fn().mockReturnThis(),
+        set: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        returning: jest.fn().mockReturnThis(),
+        execute: jest.fn().mockResolvedValue({ affected: 0, raw: [] }),
+      };
+      mockProductRepo.createQueryBuilder.mockReturnValue(mockQb);
+
+      await repo.block("j1", "caja-1", "reason");
+
+      expect(mockQb.set).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: "blocked_for_review",
+          blocked_reason: "reason",
+          blocked_by: "caja-1",
+          blocked_at: expect.any(Date),
+        }),
+      );
+      const allCalls = [
+        ...mockQb.where.mock.calls.flat(),
+        ...mockQb.andWhere.mock.calls.flat(),
+      ].join(" ");
+      expect(allCalls).toMatch(/status = :status/);
+      expect(allCalls).toMatch(/claimed_by = :installation/);
+      expect(allCalls).toMatch(/lease_expires_at > NOW\(\)/);
+    });
+
+    it("returns null when the atomic update affects zero rows", async () => {
+      const mockQb = {
+        update: jest.fn().mockReturnThis(),
+        set: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        returning: jest.fn().mockReturnThis(),
+        execute: jest.fn().mockResolvedValue({ affected: 0, raw: [] }),
+      };
+      mockProductRepo.createQueryBuilder.mockReturnValue(mockQb);
+
+      const result = await repo.block("j1", "caja-1", "reason");
+
+      expect(result).toBeNull();
+    });
+  });
+
+  describe("blocked_for_review exclusions", () => {
+    it("claimNext candidate subquery never includes blocked_for_review", async () => {
+      const mockQb = {
+        update: jest.fn().mockReturnThis(),
+        set: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        returning: jest.fn().mockReturnThis(),
+        execute: jest.fn().mockResolvedValue({ affected: 0, raw: [] }),
+      };
+      mockProductRepo.createQueryBuilder.mockReturnValue(mockQb);
+
+      await repo.claimNext("caja-1", 30000);
+
+      const allCalls = [
+        ...mockQb.where.mock.calls.flat(),
+        ...mockQb.andWhere.mock.calls.flat(),
+      ].join(" ");
+      expect(allCalls).not.toMatch(/blocked_for_review/);
+    });
+
+    it("claimBatch SQL candidate pool never includes blocked_for_review", async () => {
+      mockProductRepo.query = jest.fn().mockResolvedValue([]);
+
+      await repo.claimBatch("caja-1", 300000, 5);
+
+      const sql: string = mockProductRepo.query.mock.calls[0][0];
+      expect(sql).not.toMatch(/blocked_for_review/);
+    });
+
+    it("expireLeases only resets status='claimed', never blocked jobs", async () => {
+      const mockQb = {
+        update: jest.fn().mockReturnThis(),
+        set: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        execute: jest.fn().mockResolvedValue({ affected: 0 }),
+      };
+      mockProductRepo.createQueryBuilder.mockReturnValue(mockQb);
+
+      await repo.expireLeases();
+
+      expect(mockQb.where).toHaveBeenCalledWith("status = :status", {
+        status: "claimed",
+      });
+      expect(mockQb.set).toHaveBeenCalledWith(
+        expect.objectContaining({ status: "pending" }),
+      );
     });
   });
 });

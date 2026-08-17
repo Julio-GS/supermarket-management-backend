@@ -57,6 +57,15 @@ export class PrintJobEntity {
   @Column({ type: "varchar", length: 500, nullable: true, name: "fail_reason" })
   fail_reason!: string | null;
 
+  @Column({ type: "varchar", length: 500, nullable: true, name: "blocked_reason" })
+  blocked_reason!: string | null;
+
+  @Column({ type: "varchar", length: 100, nullable: true, name: "blocked_by" })
+  blocked_by!: string | null;
+
+  @Column({ type: "timestamptz", nullable: true, name: "blocked_at" })
+  blocked_at!: Date | null;
+
   @Column({
     type: "varchar",
     length: 100,

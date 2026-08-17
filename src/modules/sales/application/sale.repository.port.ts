@@ -2,6 +2,7 @@ import { EntityManager } from "typeorm";
 import type {
   Sale,
   InvoiceStatus,
+  ManualDiscountModality,
   PaymentMethodAllocation,
   SaleItemAppliedPromotion,
   SaleSplitTicketGroupInput,
@@ -32,6 +33,9 @@ export interface SaleCreateInput {
   payment_methods: PaymentMethodAllocation[];
   split_ticket_groups?: SaleSplitTicketGroupInput[] | null;
   invoice_status: InvoiceStatus;
+  manual_discount_amount?: string | null;
+  manual_discount_modality?: ManualDiscountModality | null;
+  manual_discount_percentage?: string | null;
   cae?: string | null;
   cae_vto?: string | null;
   cbte_nro?: number | null;

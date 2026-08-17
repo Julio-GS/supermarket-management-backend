@@ -117,7 +117,7 @@ describe("UpdateProviderPurchaseUseCase", () => {
 
     await useCase.execute("purchase-1", { amount: "700.00" });
 
-    expect(cache.deleteByPrefix).toHaveBeenCalledWith("reports:v1");
+    expect(cache.deleteByPrefix).toHaveBeenCalledWith("reports:v2");
   });
 
   it("does not overwrite fields not provided", async () => {

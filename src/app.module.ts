@@ -5,6 +5,7 @@ import { appConfig } from "./shared/config/app.config";
 import { databaseConfig } from "./shared/config/database.config";
 import { jwtConfig } from "./shared/config/jwt.config";
 import { arcaConfig } from "./shared/config/arca.config";
+import { labelPrinterConfig } from "./shared/config/label-printer.config";
 import { DatabaseModule } from "./shared/database/database.module";
 import { AuthModule } from "./modules/auth/auth.module";
 import { UsersModule } from "./modules/users/users.module";
@@ -21,7 +22,7 @@ import { SyncModule } from "./modules/sync/sync.module";
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [appConfig, databaseConfig, jwtConfig, arcaConfig],
+      load: [appConfig, databaseConfig, jwtConfig, arcaConfig, labelPrinterConfig],
       envFilePath: ".env",
     }),
     TypeOrmModule.forRootAsync({

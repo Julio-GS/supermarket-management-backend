@@ -25,6 +25,11 @@ describe("ReportsController", () => {
         { method: "card", amount: "400.00" },
       ],
       topProducts: [{ productId: "p1", detalle: "Milk", units_sold: 10 }],
+      fiscal: {
+        issued: { amount: "100.00", sale_count: 2 },
+        none: { amount: "50.00", sale_count: 1 },
+        incident: { amount: "50.00", sale_count: 2 },
+      },
       ...overrides,
     };
   }
@@ -122,6 +127,41 @@ describe("ReportsController", () => {
         { method: "card", amount: "400.00" },
       ],
       topProducts: [{ productId: "p1", detalle: "Milk", units_sold: 10 }],
+      fiscal: {
+        issued: { amount: "100.00", sale_count: 2 },
+        none: { amount: "50.00", sale_count: 1 },
+        incident: { amount: "50.00", sale_count: 2 },
+      },
+    });
+  });
+
+  it("maps fiscal grouping with empty buckets to zero amounts", async () => {
+    jest
+      .spyOn(GetBusinessReportUseCase, "parseBusinessReportInput")
+      .mockReturnValue({
+        mode: "custom",
+        from: "2025-01-01T00:00:00Z",
+        to: "2025-01-31T23:59:59Z",
+      });
+    getBusinessReport.execute.mockResolvedValue(
+      makeReport({
+        fiscal: {
+          issued: { amount: "0.00", sale_count: 0 },
+          none: { amount: "0.00", sale_count: 0 },
+          incident: { amount: "0.00", sale_count: 0 },
+        },
+      }),
+    );
+
+    const result = await controller.getReport({
+      from: "2025-01-01T00:00:00Z",
+      to: "2025-01-31T23:59:59Z",
+    } as any);
+
+    expect(result.fiscal).toEqual({
+      issued: { amount: "0.00", sale_count: 0 },
+      none: { amount: "0.00", sale_count: 0 },
+      incident: { amount: "0.00", sale_count: 0 },
     });
   });
 

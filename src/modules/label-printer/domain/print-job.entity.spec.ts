@@ -95,6 +95,18 @@ describe("PrintJob (domain entity)", () => {
       expect(job.status).toBe("superseded");
       expect(job.fail_reason).toBe("superseded");
     });
+
+    it("supports blocked_for_review with audit fields", () => {
+      const job = new PrintJob();
+      job.status = "blocked_for_review";
+      job.blocked_reason = "Manual review";
+      job.blocked_by = "caja-1";
+      job.blocked_at = new Date();
+      expect(job.status).toBe("blocked_for_review");
+      expect(job.blocked_reason).toBe("Manual review");
+      expect(job.blocked_by).toBe("caja-1");
+      expect(job.blocked_at).toBeInstanceOf(Date);
+    });
   });
 
   describe("PrintJobStatus", () => {
@@ -112,6 +124,15 @@ describe("PrintJob (domain entity)", () => {
       expect(PrintJobStatus.SUPERSEDED).not.toBe(PrintJobStatus.PENDING);
       expect(PrintJobStatus.SUPERSEDED).not.toBe(PrintJobStatus.CLAIMED);
       expect(PrintJobStatus.SUPERSEDED).not.toBe(PrintJobStatus.COMPLETED);
+    });
+
+    it("defines blocked_for_review as a terminal non-claimable status", () => {
+      expect(PrintJobStatus.BLOCKED_FOR_REVIEW).toBe("blocked_for_review");
+      expect(PrintJobStatus.BLOCKED_FOR_REVIEW).not.toBe(PrintJobStatus.PENDING);
+      expect(PrintJobStatus.BLOCKED_FOR_REVIEW).not.toBe(PrintJobStatus.CLAIMED);
+      expect(PrintJobStatus.BLOCKED_FOR_REVIEW).not.toBe(PrintJobStatus.COMPLETED);
+      expect(PrintJobStatus.BLOCKED_FOR_REVIEW).not.toBe(PrintJobStatus.FAILED);
+      expect(PrintJobStatus.BLOCKED_FOR_REVIEW).not.toBe(PrintJobStatus.SUPERSEDED);
     });
   });
 });

@@ -99,4 +99,90 @@ describe("TypeOrmReportRepository", () => {
       expect.objectContaining({ startsAt }),
     );
   });
+
+  it("returns fiscal grouping with three buckets from aggregate row", async () => {
+    qb.getRawOne
+      .mockResolvedValueOnce({ amount: "1000.00" })
+      .mockResolvedValueOnce({
+        issued_amount: "100.00",
+        issued_count: 2,
+        none_amount: "50.00",
+        none_count: 1,
+        incident_amount: "50.00",
+        incident_count: 2,
+      });
+    qb.getRawMany.mockResolvedValue([]);
+
+    const result = await repository.getBusinessReport(startsAt, endsAt);
+
+    expect(result.fiscal).toEqual({
+      issued: { amount: "100.00", sale_count: 2 },
+      none: { amount: "50.00", sale_count: 1 },
+      incident: { amount: "50.00", sale_count: 2 },
+    });
+  });
+
+  it("returns empty fiscal buckets when fiscal row is absent", async () => {
+    qb.getRawOne
+      .mockResolvedValueOnce({ amount: "1000.00" })
+      .mockResolvedValueOnce(null);
+    qb.getRawMany.mockResolvedValue([]);
+
+    const result = await repository.getBusinessReport(startsAt, endsAt);
+
+    expect(result.fiscal).toEqual({
+      issued: { amount: "0.00", sale_count: 0 },
+      none: { amount: "0.00", sale_count: 0 },
+      incident: { amount: "0.00", sale_count: 0 },
+    });
+  });
+
+  it("normalizes fiscal amounts to two-decimal strings", async () => {
+    qb.getRawOne
+      .mockResolvedValueOnce({ amount: "1000.00" })
+      .mockResolvedValueOnce({
+        issued_amount: "60.6",
+        issued_count: "1",
+        none_amount: 0,
+        none_count: "0",
+        incident_amount: "10.1",
+        incident_count: 3,
+      });
+    qb.getRawMany.mockResolvedValue([]);
+
+    const result = await repository.getBusinessReport(startsAt, endsAt);
+
+    expect(result.fiscal.issued.amount).toBe("60.60");
+    expect(result.fiscal.none.amount).toBe("0.00");
+    expect(result.fiscal.incident.amount).toBe("10.10");
+    expect(result.fiscal.incident.sale_count).toBe(3);
+  });
+
+  it("queries fiscal grouping with status predicates and date bounds", async () => {
+    qb.getRawOne
+      .mockResolvedValueOnce({ amount: "1000.00" })
+      .mockResolvedValueOnce(null);
+    qb.getRawMany.mockResolvedValue([]);
+
+    await repository.getBusinessReport(startsAt, endsAt);
+
+    const selectExprs = [
+      qb.select.mock.calls.map((c) => String(c[0])).join(" "),
+      qb.addSelect.mock.calls.map((c) => String(c[0])).join(" "),
+    ].join(" ");
+
+    expect(selectExprs).toContain("invoice_status = 'issued'");
+    expect(selectExprs).toContain("invoice_status = 'none'");
+    expect(selectExprs).toContain("invoice_status IN ('issuing', 'failed', 'ambiguous')");
+    expect(selectExprs).toContain("sales.total");
+    expect(qb.where).toHaveBeenCalledWith(
+      "sales.created_at >= :startsAt",
+      expect.objectContaining({ startsAt }),
+    );
+    expect(qb.andWhere).toHaveBeenCalledWith(
+      "sales.created_at <= :endsAt",
+      expect.objectContaining({ endsAt }),
+    );
+  });
+
 });

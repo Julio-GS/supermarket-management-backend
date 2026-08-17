@@ -109,6 +109,7 @@ export class GetBusinessReportUseCase {
       range: formatReportRange(startsAt, endsAt),
       totalCollectedAmount: data.totalCollectedAmount,
       paymentMethodBreakdown: data.paymentMethodBreakdown,
+      fiscal: data.fiscal,
       topProducts: data.topProducts.slice(
         0,
         GetBusinessReportUseCase.TOP_PRODUCTS_LIMIT,
@@ -139,6 +140,7 @@ export class GetBusinessReportUseCase {
       range: formatCustomReportRange(startsAt, endsAt),
       totalCollectedAmount: data.totalCollectedAmount,
       paymentMethodBreakdown: data.paymentMethodBreakdown,
+      fiscal: data.fiscal,
       topProducts: data.topProducts.slice(
         0,
         GetBusinessReportUseCase.TOP_PRODUCTS_LIMIT,

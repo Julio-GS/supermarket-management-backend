@@ -11,7 +11,7 @@ export const PRODUCT_READ_CACHE_POLICY: CachePolicy = {
 };
 
 export const REPORT_READ_CACHE_POLICY: CachePolicy = {
-  prefix: "reports:v1",
+  prefix: "reports:v2",
   ttlMs: 60_000,
   cacheable: true,
 };

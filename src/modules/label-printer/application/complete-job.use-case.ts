@@ -12,6 +12,9 @@ export class CompleteJobUseCase {
     if (!job) {
       const existing = await this.repo.findById(jobId);
       if (existing) {
+        if (existing.status === "blocked_for_review") {
+          throw new ConflictError("job is blocked");
+        }
         if (
           existing.lease_expires_at &&
           existing.lease_expires_at < new Date()

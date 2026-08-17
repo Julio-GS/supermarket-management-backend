@@ -20,6 +20,8 @@ import { AddAutoJobConcurrencyGuard1810000000000 } from "../database/migrations/
 import { AddSupersededStatusToLabelPrintJobs1811000000000 } from "../database/migrations/1811000000000-AddSupersededStatusToLabelPrintJobs";
 import { FixLabelPrintJobsTimestamptz1812000000000 } from "../database/migrations/1812000000000-FixLabelPrintJobsTimestamptz";
 import { AddProductCreateIdempotencyKeys1813000000000 } from "../database/migrations/1813000000000-AddProductCreateIdempotencyKeys";
+import { AddSaleManualDiscount1814000000000 } from "../database/migrations/1814000000000-AddSaleManualDiscount";
+import { AddBlockedForReviewToLabelPrintJobs1815000000000 } from "../database/migrations/1815000000000-AddBlockedForReviewToLabelPrintJobs";
 
 export const databaseConfig = registerAs(
   "database",
@@ -53,6 +55,8 @@ export const databaseConfig = registerAs(
       AddSupersededStatusToLabelPrintJobs1811000000000,
       FixLabelPrintJobsTimestamptz1812000000000,
       AddProductCreateIdempotencyKeys1813000000000,
+      AddSaleManualDiscount1814000000000,
+      AddBlockedForReviewToLabelPrintJobs1815000000000,
     ],
     migrationsRun: process.env.NODE_ENV !== "test",
   }),

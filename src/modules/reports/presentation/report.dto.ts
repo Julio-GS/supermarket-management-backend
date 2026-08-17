@@ -34,6 +34,21 @@ export class TopProductDto {
   units_sold!: number;
 }
 
+export class FiscalReportBucketDto {
+  @IsString()
+  amount!: string;
+
+  sale_count!: number;
+}
+
+export class FiscalReportGroupingDto {
+  issued!: FiscalReportBucketDto;
+
+  none!: FiscalReportBucketDto;
+
+  incident!: FiscalReportBucketDto;
+}
+
 export class ReportResponseDto {
   @IsString()
   window!: string;
@@ -46,4 +61,6 @@ export class ReportResponseDto {
   paymentMethodBreakdown!: PaymentMethodBreakdownDto[];
 
   topProducts!: TopProductDto[];
+
+  fiscal!: FiscalReportGroupingDto;
 }

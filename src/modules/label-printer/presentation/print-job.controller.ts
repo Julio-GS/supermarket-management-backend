@@ -12,6 +12,9 @@ import {
   CreatePrintJobDto,
   ClaimJobDto,
   ClaimBatchDto,
+  ClaimBatchContinueDto,
+  ClaimBatchContinueResponseDto,
+  BlockJobDto,
   CompleteJobDto,
   FailJobDto,
   PrintJobResponseDto,
@@ -20,6 +23,8 @@ import { CreatePrintJobUseCase } from "../application/create-print-job.use-case"
 import { ListPendingJobsUseCase } from "../application/list-pending-jobs.use-case";
 import { ClaimJobUseCase } from "../application/claim-job.use-case";
 import { ClaimBatchUseCase } from "../application/claim-batch.use-case";
+import { ClaimBatchContinueUseCase } from "../application/claim-batch-continue.use-case";
+import { BlockJobUseCase } from "../application/block-job.use-case";
 import { CompleteJobUseCase } from "../application/complete-job.use-case";
 import { FailJobUseCase } from "../application/fail-job.use-case";
 import { PrintJob } from "../domain/print-job.entity";
@@ -38,6 +43,9 @@ function toResponse(job: PrintJob): PrintJobResponseDto {
     completed_at: job.completed_at?.toISOString() ?? null,
     failed_at: job.failed_at?.toISOString() ?? null,
     fail_reason: job.fail_reason,
+    blocked_reason: job.blocked_reason,
+    blocked_by: job.blocked_by,
+    blocked_at: job.blocked_at?.toISOString() ?? null,
     created_at: job.created_at.toISOString(),
     updated_at: job.updated_at.toISOString(),
   };
@@ -51,6 +59,8 @@ export class PrintJobController {
     private readonly listPending: ListPendingJobsUseCase,
     private readonly claimJob: ClaimJobUseCase,
     private readonly claimBatchUseCase: ClaimBatchUseCase,
+    private readonly claimBatchContinueUseCase: ClaimBatchContinueUseCase,
+    private readonly blockJob: BlockJobUseCase,
     private readonly completeJob: CompleteJobUseCase,
     private readonly failJob: FailJobUseCase,
   ) {}
@@ -73,6 +83,23 @@ export class PrintJobController {
     return job ? toResponse(job) : null;
   }
 
+  @Post("claim-batch/continue")
+  async claimBatchContinue(
+    @Body() dto: ClaimBatchContinueDto,
+  ): Promise<ClaimBatchContinueResponseDto> {
+    const result = await this.claimBatchContinueUseCase.execute({
+      installation: dto.installation,
+      cursor: dto.cursor,
+      limit: dto.limit,
+      lease_seconds: dto.lease_seconds,
+    });
+    return {
+      jobs: result.jobs.map(toResponse),
+      next_cursor: result.next_cursor,
+      has_more: result.has_more,
+    };
+  }
+
   @Post("claim-batch")
   async claimBatch(@Body() dto: ClaimBatchDto): Promise<PrintJobResponseDto[]> {
     const jobs = await this.claimBatchUseCase.execute(
@@ -81,6 +108,15 @@ export class PrintJobController {
       dto.limit,
     );
     return jobs.map(toResponse);
+  }
+
+  @Post(":id/block")
+  async block(
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: BlockJobDto,
+  ): Promise<PrintJobResponseDto> {
+    const job = await this.blockJob.execute(id, dto.installation, dto.reason);
+    return toResponse(job);
   }
 
   @Post(":id/complete")

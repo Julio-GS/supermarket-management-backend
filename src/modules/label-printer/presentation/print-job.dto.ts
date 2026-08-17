@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsUUID, IsInt, Min, Max, MinLength, Validate, ValidatorConstraint, ValidatorConstraintInterface, ValidationArguments } from "class-validator";
+import { IsString, IsOptional, IsUUID, IsInt, Min, Max, MinLength, MaxLength, Validate, ValidatorConstraint, ValidatorConstraintInterface, ValidationArguments } from "class-validator";
 import { validateMoneyString } from "../../../shared/money/money.helper";
 
 @ValidatorConstraint({ name: "moneyString", async: false })
@@ -77,6 +77,17 @@ export class FailJobDto {
   reason!: string;
 }
 
+export class BlockJobDto {
+  @IsString()
+  @MinLength(1)
+  installation!: string;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(500)
+  reason!: string;
+}
+
 export class PrintJobResponseDto {
   id!: string;
   product_id!: string;
@@ -90,6 +101,37 @@ export class PrintJobResponseDto {
   completed_at!: string | null;
   failed_at!: string | null;
   fail_reason!: string | null;
+  blocked_reason!: string | null;
+  blocked_by!: string | null;
+  blocked_at!: string | null;
   created_at!: string;
   updated_at!: string;
+}
+
+export class ClaimBatchContinueDto {
+  @IsString()
+  @MinLength(1)
+  installation!: string;
+
+  @IsOptional()
+  @IsString()
+  cursor?: string | null;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(45)
+  limit?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(300)
+  lease_seconds?: number;
+}
+
+export class ClaimBatchContinueResponseDto {
+  jobs!: PrintJobResponseDto[];
+  next_cursor!: string | null;
+  has_more!: boolean;
 }

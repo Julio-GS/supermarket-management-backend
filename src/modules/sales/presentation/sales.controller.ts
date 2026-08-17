@@ -38,6 +38,9 @@ export function toSaleResponse(sale: Sale): SaleResponseDto {
     id: sale.id,
     user_id: sale.user_id,
     total: sale.total,
+    manual_discount_amount: sale.manual_discount_amount ?? null,
+    manual_discount_modality: sale.manual_discount_modality ?? null,
+    manual_discount_percentage: sale.manual_discount_percentage ?? null,
     payment_methods: sale.payment_methods ?? [],
     split_ticket_groups: sale.split_ticket_groups ?? null,
     items: sale.items.map(
@@ -89,6 +92,7 @@ export class SalesController {
       payment_methods: dto.payment_methods,
       split_ticket_groups: dto.split_ticket_groups,
       invoice_requested: dto.invoice_requested,
+      manual_discount: dto.manual_discount ?? null,
     });
     return toSaleResponse(sale);
   }

@@ -16,16 +16,29 @@ export interface TopProduct {
   units_sold: number;
 }
 
+export interface FiscalReportBucket {
+  amount: string;
+  sale_count: number;
+}
+
+export interface FiscalReportGrouping {
+  issued: FiscalReportBucket;
+  none: FiscalReportBucket;
+  incident: FiscalReportBucket;
+}
+
 export interface BusinessReport {
   window: ReportMode;
   range: { startsAt: string; endsAt: string };
   totalCollectedAmount: string;
   paymentMethodBreakdown: PaymentMethodBreakdown[];
   topProducts: TopProduct[];
+  fiscal: FiscalReportGrouping;
 }
 
 export interface ReportAggregateData {
   totalCollectedAmount: string;
   paymentMethodBreakdown: { method: PaymentMethod; amount: string }[];
   topProducts: { productId: string; detalle: string; units_sold: number }[];
+  fiscal: FiscalReportGrouping;
 }

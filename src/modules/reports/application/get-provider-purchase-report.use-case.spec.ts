@@ -115,7 +115,7 @@ describe("GetProviderPurchaseReportUseCase", () => {
     await useCase.execute("day");
 
     expect(cache.getOrSet).toHaveBeenCalledWith(
-      expect.stringContaining("reports:v1:provider-purchase:"),
+      expect.stringContaining("reports:v2:provider-purchase:"),
       60_000,
       expect.any(Function),
     );

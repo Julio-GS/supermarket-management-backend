@@ -36,6 +36,7 @@ function toReportResponse(report: BusinessReport): ReportResponseDto {
     totalCollectedAmount: report.totalCollectedAmount,
     paymentMethodBreakdown: report.paymentMethodBreakdown,
     topProducts: report.topProducts,
+    fiscal: report.fiscal,
   };
 }
 

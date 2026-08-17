@@ -56,4 +56,17 @@ describe("CompleteJobUseCase", () => {
       useCase.execute("j1", "caja-1"),
     ).rejects.toThrow(ConflictError);
   });
+
+  it("throws ConflictError 'job is blocked' when the job is blocked", async () => {
+    mockRepo.complete.mockResolvedValue(null);
+    const blockedJob = new PrintJob();
+    blockedJob.id = "j1";
+    blockedJob.status = "blocked_for_review";
+    blockedJob.claimed_by = "caja-1";
+    mockRepo.findById.mockResolvedValue(blockedJob);
+
+    await expect(
+      useCase.execute("j1", "caja-1"),
+    ).rejects.toThrow(/job is blocked/);
+  });
 });

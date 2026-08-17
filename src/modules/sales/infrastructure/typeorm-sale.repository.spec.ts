@@ -315,6 +315,95 @@ describe("TypeOrmSaleRepository", () => {
     expect(result?.payment_methods).toEqual([]);
     expect(result?.split_ticket_groups).toBeNull();
   });
+
+  it("persists manual discount fields when creating a sale", async () => {
+    const randomUUID = crypto.randomUUID as jest.MockedFunction<
+      typeof crypto.randomUUID
+    >;
+    randomUUID.mockReturnValueOnce(saleId).mockReturnValueOnce(itemId1);
+
+    const itemRepo = {
+      create: jest.fn((input) => input),
+    } as unknown as Repository<SaleItemEntity>;
+    const paymentMethodRepo = {
+      create: jest.fn((input) => input),
+    } as unknown as Repository<SalePaymentMethodEntity>;
+    const ticketAllocationRepo = {
+      create: jest.fn((input) => input),
+    } as unknown as Repository<SaleTicketAllocationEntity>;
+    const saleRepo = {
+      create: jest.fn((input) => input),
+      save: jest.fn().mockResolvedValue(
+        buildSaleEntity({
+          id: saleId,
+          manual_discount_amount: "20.00",
+          manual_discount_modality: "fixed",
+          manual_discount_percentage: null,
+        }),
+      ),
+    } as unknown as Repository<SaleEntity>;
+
+    const repository = new TypeOrmSaleRepository(
+      saleRepo,
+      itemRepo,
+      paymentMethodRepo,
+      ticketAllocationRepo,
+    );
+
+    const result = await repository.create({
+      user_id: "user-id",
+      items: [
+        {
+          product_id: "product-id",
+          quantity: 1,
+          unit_price: "100.00",
+          subtotal: "100.00",
+        },
+      ],
+      total: "80.00",
+      invoice_status: "none",
+      payment_methods: [{ method: "cash", amount: "80.00" }],
+      manual_discount_amount: "20.00",
+      manual_discount_modality: "fixed",
+      manual_discount_percentage: null,
+    });
+
+    expect(saleRepo.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        manual_discount_amount: "20.00",
+        manual_discount_modality: "fixed",
+        manual_discount_percentage: null,
+      }),
+    );
+    expect(result.manual_discount_amount).toBe("20.00");
+    expect(result.manual_discount_modality).toBe("fixed");
+    expect(result.manual_discount_percentage).toBeNull();
+  });
+
+  it("maps historical null manual discount fields to null without coercion", async () => {
+    const saleRepo = {
+      findOne: jest.fn().mockResolvedValue(
+        buildSaleEntity({
+          manual_discount_amount: null,
+          manual_discount_modality: null,
+          manual_discount_percentage: null,
+        }),
+      ),
+    } as unknown as Repository<SaleEntity>;
+
+    const repository = new TypeOrmSaleRepository(
+      saleRepo,
+      {} as Repository<SaleItemEntity>,
+      {} as Repository<SalePaymentMethodEntity>,
+      {} as Repository<SaleTicketAllocationEntity>,
+    );
+
+    const result = await repository.findByIdForUser(saleId, "user-id");
+
+    expect(result?.manual_discount_amount).toBeNull();
+    expect(result?.manual_discount_modality).toBeNull();
+    expect(result?.manual_discount_percentage).toBeNull();
+  });
 });
 
 function createQueryBuilderMock() {

@@ -63,6 +63,6 @@ describe("DeleteProviderPurchaseUseCase", () => {
 
     await useCase.execute("purchase-1");
 
-    expect(cache.deleteByPrefix).toHaveBeenCalledWith("reports:v1");
+    expect(cache.deleteByPrefix).toHaveBeenCalledWith("reports:v2");
   });
 });

@@ -4,6 +4,7 @@ export const PrintJobStatus = {
   COMPLETED: "completed",
   FAILED: "failed",
   SUPERSEDED: "superseded",
+  BLOCKED_FOR_REVIEW: "blocked_for_review",
 } as const;
 
 export type PrintJobStatus = (typeof PrintJobStatus)[keyof typeof PrintJobStatus];
@@ -28,6 +29,9 @@ export class PrintJob {
   completed_at!: Date | null;
   failed_at!: Date | null;
   fail_reason!: string | null;
+  blocked_reason!: string | null;
+  blocked_by!: string | null;
+  blocked_at!: Date | null;
   idempotency_key!: string | null;
   source: string | null = null;
   created_at!: Date;

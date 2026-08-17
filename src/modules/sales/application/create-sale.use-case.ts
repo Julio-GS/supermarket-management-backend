@@ -1,5 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { randomUUID } from "crypto";
+import { Decimal } from "decimal.js";
 import { ProductRepositoryPort } from "../../products/application/product.repository.port";
 import { Product } from "../../products/domain/product.entity";
 import { SaleRepositoryPort, SaleItemCreateData } from "./sale.repository.port";
@@ -10,6 +11,7 @@ import {
 } from "../../promotions/application/promotion-resolver.service";
 import {
   InvoiceStatus,
+  ManualDiscountModality,
   PAYMENT_METHODS,
   PaymentMethod,
   PaymentMethodAllocation,
@@ -36,12 +38,19 @@ export interface CreateSaleItemInput {
   split_ticket?: SaleItemSplitTicketInput;
 }
 
+export interface CreateManualDiscountInput {
+  modality: ManualDiscountModality;
+  amount?: string;
+  percentage?: string;
+}
+
 export interface CreateSaleInput {
   user_id: string;
   items: CreateSaleItemInput[];
   payment_methods: PaymentMethodAllocation[];
   split_ticket_groups?: SaleSplitTicketGroupInput[] | null;
   invoice_requested?: boolean;
+  manual_discount?: CreateManualDiscountInput | null;
 }
 
 const ALLOWED_PAYMENT_METHODS = new Set<PaymentMethod>(PAYMENT_METHODS);
@@ -238,6 +247,115 @@ function resolveSplitTicketGroups(
   }
 
   return normalizeItemSplitTicketGroups(items);
+}
+
+interface ResolvedManualDiscount {
+  amount: Decimal;
+  modality: ManualDiscountModality | null;
+  percentage: string | null;
+}
+
+function requireMoney(value: string | undefined, message: string): Decimal {
+  if (typeof value !== "string" || value === "") {
+    throw new ValidationError(message);
+  }
+  return Money.parse(value);
+}
+
+function resolveManualDiscount(
+  input: CreateManualDiscountInput | null | undefined,
+  subtotal: Decimal,
+): ResolvedManualDiscount {
+  if (!input) {
+    return { amount: Money.zero(), modality: null, percentage: null };
+  }
+
+  const amount = requireMoney(input.amount, "manual discount amount is required");
+  if (amount.lt(0)) {
+    throw new ValidationError("discount must be non-negative");
+  }
+
+  if (input.modality === "fixed") {
+    if (amount.gt(subtotal)) {
+      throw new ValidationError("discount exceeds subtotal");
+    }
+    if (amount.eq(0)) {
+      return { amount: Money.zero(), modality: null, percentage: null };
+    }
+    return { amount, modality: "fixed", percentage: null };
+  }
+
+  const percentage = requireMoney(
+    input.percentage,
+    "manual discount percentage is required",
+  );
+  if (percentage.lt(0) || percentage.gt(100)) {
+    throw new ValidationError("percentage must be between 0 and 100");
+  }
+
+  const expected = subtotal
+    .mul(percentage)
+    .div(100)
+    .toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+
+  if (expected.sub(amount).abs().gt(0.01)) {
+    throw new ValidationError("percentage amount mismatch");
+  }
+  if (expected.gt(subtotal)) {
+    throw new ValidationError("discount exceeds subtotal");
+  }
+  if (expected.eq(0)) {
+    return { amount: Money.zero(), modality: null, percentage: null };
+  }
+  return {
+    amount: expected,
+    modality: "percentage",
+    percentage: Money.toString(percentage),
+  };
+}
+
+function allocateManualDiscountAcrossInvoiceLines(
+  lines: { line_total: string; iva_rate: string }[],
+  subtotal: Decimal,
+  discount: Decimal,
+): { line_total: string; iva_rate: string }[] {
+  if (discount.eq(0) || lines.length === 0) {
+    return lines;
+  }
+
+  const finalTotal = subtotal.sub(discount);
+  const adjusted: { line_total: string; iva_rate: string }[] = [];
+  let allocated = Money.zero();
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const lineTotal = Money.parse(line.line_total);
+    if (i === lines.length - 1) {
+      const residual = finalTotal.sub(allocated);
+      if (residual.lt(0)) {
+        throw new ValidationError(
+          "manual discount allocation produced a negative invoice line",
+        );
+      }
+      adjusted.push({
+        line_total: Money.toString(residual),
+        iva_rate: line.iva_rate,
+      });
+    } else {
+      const share = lineTotal
+        .div(subtotal)
+        .mul(discount)
+        .toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+      const lineFinal = lineTotal.sub(share);
+      allocated = allocated.add(lineFinal);
+      adjusted.push({
+        line_total: Money.toString(lineFinal),
+        iva_rate: line.iva_rate,
+      });
+    }
+  }
+
+  return adjusted;
 }
 
 @Injectable()
@@ -548,6 +666,16 @@ export class CreateSaleUseCase {
       pto_vta: number;
     } | null = null;
 
+    const postPromotionSubtotal = total;
+    const manualDiscount = resolveManualDiscount(
+      input.manual_discount,
+      postPromotionSubtotal,
+    );
+    const finalTotal = Money.subtract(postPromotionSubtotal, manualDiscount.amount);
+    if (finalTotal.lt(0)) {
+      throw new ValidationError("discount exceeds subtotal");
+    }
+
     if (invoiceRequested) {
       const invoiceItems = saleItems.map((si) => {
         // Ad-hoc items carry their own iva_rate; catalog items use the product's iva
@@ -561,8 +689,14 @@ export class CreateSaleUseCase {
         };
       });
 
+      const adjustedInvoiceItems = allocateManualDiscountAcrossInvoiceLines(
+        invoiceItems,
+        postPromotionSubtotal,
+        manualDiscount.amount,
+      );
+
       try {
-        invoiceResult = await this.issueInvoice.issue(invoiceItems);
+        invoiceResult = await this.issueInvoice.issue(adjustedInvoiceItems);
       } catch (error) {
         this.logger.error(
           `ARCA invoice issuance failed; checkout will complete without fiscal invoice`,
@@ -584,7 +718,10 @@ export class CreateSaleUseCase {
       items: saleItems,
       payment_methods: paymentMethods,
       split_ticket_groups: splitTicketGroups,
-      total: Money.toString(total),
+      total: Money.toString(finalTotal),
+      manual_discount_amount: Money.toString(manualDiscount.amount),
+      manual_discount_modality: manualDiscount.modality,
+      manual_discount_percentage: manualDiscount.percentage,
       invoice_status: invoiceStatus,
       cae: invoiceResult?.cae ?? null,
       cae_vto: invoiceResult?.cae_vto ?? null,

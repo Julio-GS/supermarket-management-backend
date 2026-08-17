@@ -30,13 +30,15 @@ describe("database.config", () => {
         "AddSupersededStatusToLabelPrintJobs1811000000000",
         "FixLabelPrintJobsTimestamptz1812000000000",
         "AddProductCreateIdempotencyKeys1813000000000",
+        "AddSaleManualDiscount1814000000000",
+        "AddBlockedForReviewToLabelPrintJobs1815000000000",
       ]);
     });
 
-    it("has exactly 20 migrations (same count as CLI data-source.ts)", () => {
+    it("has exactly 22 migrations (same count as CLI data-source.ts)", () => {
       const config = databaseConfig();
       const migrations = config.migrations as Function[];
-      expect(migrations).toHaveLength(20);
+      expect(migrations).toHaveLength(22);
     });
   });
 });

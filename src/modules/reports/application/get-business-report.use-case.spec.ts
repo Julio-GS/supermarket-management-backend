@@ -17,6 +17,11 @@ function makeAggregate(
       { productId: "p1", detalle: "Milk", units_sold: 10 },
       { productId: "p2", detalle: "Bread", units_sold: 5 },
     ],
+    fiscal: {
+      issued: { amount: "100.00", sale_count: 2 },
+      none: { amount: "50.00", sale_count: 1 },
+      incident: { amount: "50.00", sale_count: 2 },
+    },
     ...overrides,
   };
 }
@@ -118,7 +123,7 @@ describe("GetBusinessReportUseCase", () => {
     await useCase.execute({ mode: "window", window: "day" });
 
     expect(cache.getOrSet).toHaveBeenCalledWith(
-      expect.stringContaining("reports:v1:business:"),
+      expect.stringContaining("reports:v2:business:"),
       60_000,
       expect.any(Function),
     );
@@ -169,6 +174,42 @@ describe("GetBusinessReportUseCase", () => {
   });
 
   // ── Custom range mode ────────────────────────────────────────
+
+  it("includes fiscal grouping from aggregate data", async () => {
+    reportRepo.getBusinessReport.mockResolvedValue(
+      makeAggregate({
+        fiscal: {
+          issued: { amount: "120.00", sale_count: 3 },
+          none: { amount: "0.00", sale_count: 0 },
+          incident: { amount: "45.75", sale_count: 4 },
+        },
+      }),
+    );
+
+    const result = await useCase.execute({ mode: "window", window: "day" });
+
+    expect(result.fiscal).toEqual({
+      issued: { amount: "120.00", sale_count: 3 },
+      none: { amount: "0.00", sale_count: 0 },
+      incident: { amount: "45.75", sale_count: 4 },
+    });
+  });
+
+  it("includes fiscal grouping in custom mode", async () => {
+    reportRepo.getBusinessReport.mockResolvedValue(makeAggregate());
+
+    const result = await useCase.execute({
+      mode: "custom",
+      from: "2025-01-01T00:00:00Z",
+      to: "2025-01-31T23:59:59Z",
+    });
+
+    expect(result.fiscal).toEqual({
+      issued: { amount: "100.00", sale_count: 2 },
+      none: { amount: "50.00", sale_count: 1 },
+      incident: { amount: "50.00", sale_count: 2 },
+    });
+  });
 
   it("returns custom report with window discriminator 'custom'", async () => {
     reportRepo.getBusinessReport.mockResolvedValue(makeAggregate());
@@ -340,7 +381,7 @@ describe("GetBusinessReportUseCase", () => {
     const key = cache.getOrSet.mock.calls[0][0] as string;
     // The stable stringify of { mode: "window", window: "day", ... }
     // produces a deterministic hash that differs from the pre-change key
-    expect(key).toMatch(/^reports:v1:business:[a-f0-9]{40}$/);
+    expect(key).toMatch(/^reports:v2:business:[a-f0-9]{40}$/);
   });
 
   it("custom mode cache key includes exact UTC bound values", async () => {
@@ -353,7 +394,7 @@ describe("GetBusinessReportUseCase", () => {
     });
 
     const key = cache.getOrSet.mock.calls[0][0] as string;
-    expect(key).toMatch(/^reports:v1:business:[a-f0-9]{40}$/);
+    expect(key).toMatch(/^reports:v2:business:[a-f0-9]{40}$/);
   });
 
   // ── parseBusinessReportInput ─────────────────────────────────

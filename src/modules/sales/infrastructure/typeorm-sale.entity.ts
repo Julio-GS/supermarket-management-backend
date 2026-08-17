@@ -29,6 +29,32 @@ export class SaleEntity {
   })
   invoice_status!: string;
 
+  @Column({
+    type: "numeric",
+    precision: 12,
+    scale: 2,
+    nullable: true,
+    name: "manual_discount_amount",
+  })
+  manual_discount_amount!: string | null;
+
+  @Column({
+    type: "varchar",
+    length: 20,
+    nullable: true,
+    name: "manual_discount_modality",
+  })
+  manual_discount_modality!: string | null;
+
+  @Column({
+    type: "numeric",
+    precision: 5,
+    scale: 2,
+    nullable: true,
+    name: "manual_discount_percentage",
+  })
+  manual_discount_percentage!: string | null;
+
   @Column({ type: "varchar", length: 255, nullable: true })
   cae!: string | null;
 

@@ -4,6 +4,8 @@ import { QueryRunner, Repository } from "typeorm";
 import {
   PrintJobRepositoryPort,
   CreatePrintJobInput,
+  ClaimBatchContinuingResult,
+  ClaimBatchContinuingAfter,
 } from "../application/print-job.repository.port";
 import { PrintJob } from "../domain/print-job.entity";
 import { PrintJobEntity } from "./typeorm-print-job.entity";
@@ -165,6 +167,37 @@ export class TypeOrmPrintJobRepository extends PrintJobRepositoryPort {
     return entity ? this.toDomain(entity) : null;
   }
 
+  async block(
+    jobId: string,
+    installation: string,
+    reason: string,
+  ): Promise<PrintJob | null> {
+    const now = new Date();
+
+    const result = await this.repo
+      .createQueryBuilder()
+      .update(PrintJobEntity)
+      .set({
+        status: "blocked_for_review",
+        blocked_reason: reason,
+        blocked_by: installation,
+        blocked_at: now,
+      })
+      .where("id = :id", { id: jobId })
+      .andWhere("status = :status", { status: "claimed" })
+      .andWhere("claimed_by = :installation", { installation })
+      .andWhere("lease_expires_at > NOW()")
+      .returning("*")
+      .execute();
+
+    if (!result.affected || result.affected === 0) {
+      return null;
+    }
+
+    const raw = result.raw?.[0];
+    return raw ? this.rowToDomain(raw) : null;
+  }
+
   async expireLeases(): Promise<number> {
     const result = await this.repo
       .createQueryBuilder()
@@ -221,6 +254,84 @@ export class TypeOrmPrintJobRepository extends PrintJobRepositoryPort {
           String(a.id).localeCompare(String(b.id)),
       )
       .map((row) => this.rowToDomain(row));
+  }
+
+  async claimBatchContinuing(input: {
+    installation: string;
+    leaseExpiresAt: Date;
+    limit: number;
+    after?: ClaimBatchContinuingAfter | null;
+  }): Promise<ClaimBatchContinuingResult> {
+    const now = new Date();
+    const { installation, leaseExpiresAt, limit, after } = input;
+
+    return this.repo.manager.transaction(async (manager) => {
+      const selectSql = `
+        SELECT id, created_at
+        FROM label_print_jobs
+        WHERE (
+          status IN ('pending', 'failed')
+          OR (status = 'claimed' AND lease_expires_at < NOW())
+        )
+        AND (
+          $2::timestamptz IS NULL
+          OR (created_at, id) > ($2::timestamptz, $3::uuid)
+        )
+        ORDER BY created_at ASC, id ASC
+        LIMIT $1
+        FOR UPDATE SKIP LOCKED
+      `;
+      const candidateRaw = await manager.query(selectSql, [
+        limit + 1,
+        after?.created_at ?? null,
+        after?.id ?? null,
+      ]);
+      const candidates = this.normalizeRawRows(candidateRaw);
+
+      const toClaim = candidates.slice(0, limit);
+      const hasMore = candidates.length > limit;
+
+      if (toClaim.length === 0) {
+        return { jobs: [], hasMore: false };
+      }
+
+      const ids = toClaim.map((row) => String(row.id));
+      const placeholders = ids.map((_, i) => `$${4 + i}`).join(", ");
+      const updateSql = `
+        UPDATE label_print_jobs
+        SET status = 'claimed',
+            claimed_by = $1,
+            claimed_at = $2,
+            lease_expires_at = $3
+        WHERE id IN (${placeholders})
+        RETURNING *
+      `;
+      const updatedRaw = await manager.query(updateSql, [
+        installation,
+        now,
+        leaseExpiresAt,
+        ...ids,
+      ]);
+      const updatedRows = this.normalizeRawRows(updatedRaw);
+
+      if (updatedRows.length !== toClaim.length) {
+        throw new DomainError(
+          "claimBatchContinuing: update count mismatch",
+          "INFRASTRUCTURE_ERROR",
+        );
+      }
+
+      const sorted = updatedRows
+        .sort(
+          (a, b) =>
+            this.requiredDate(a.created_at, "created_at").getTime() -
+              this.requiredDate(b.created_at, "created_at").getTime() ||
+            String(a.id).localeCompare(String(b.id)),
+        )
+        .map((row) => this.rowToDomain(row));
+
+      return { jobs: sorted, hasMore };
+    });
   }
 
   async cancelPendingByProduct(
@@ -363,6 +474,9 @@ export class TypeOrmPrintJobRepository extends PrintJobRepositoryPort {
     job.completed_at = entity.completed_at;
     job.failed_at = entity.failed_at;
     job.fail_reason = entity.fail_reason;
+    job.blocked_reason = entity.blocked_reason;
+    job.blocked_by = entity.blocked_by;
+    job.blocked_at = entity.blocked_at;
     job.idempotency_key = entity.idempotency_key;
     job.source = entity.source;
     job.created_at = entity.created_at;
@@ -385,6 +499,9 @@ export class TypeOrmPrintJobRepository extends PrintJobRepositoryPort {
     job.completed_at = this.nullableDate(raw.completed_at, "completed_at");
     job.failed_at = this.nullableDate(raw.failed_at, "failed_at");
     job.fail_reason = (raw.fail_reason as string) ?? null;
+    job.blocked_reason = (raw.blocked_reason as string) ?? null;
+    job.blocked_by = (raw.blocked_by as string) ?? null;
+    job.blocked_at = this.nullableDate(raw.blocked_at, "blocked_at");
     job.idempotency_key = (raw.idempotency_key as string) ?? null;
     job.source = (raw.source as string) ?? null;
     job.created_at = this.requiredDate(raw.created_at, "created_at");

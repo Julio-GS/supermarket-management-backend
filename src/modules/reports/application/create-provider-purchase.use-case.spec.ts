@@ -120,6 +120,6 @@ describe("CreateProviderPurchaseUseCase", () => {
 
     await useCase.execute({ provider_name: "Test", amount: "100.00" });
 
-    expect(cache.deleteByPrefix).toHaveBeenCalledWith("reports:v1");
+    expect(cache.deleteByPrefix).toHaveBeenCalledWith("reports:v2");
   });
 });

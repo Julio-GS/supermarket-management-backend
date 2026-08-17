@@ -235,6 +235,9 @@ export class TypeOrmSaleRepository extends SaleRepositoryPort {
       user_id: input.user_id,
       total: input.total,
       invoice_status: input.invoice_status,
+      manual_discount_amount: input.manual_discount_amount ?? null,
+      manual_discount_modality: input.manual_discount_modality ?? null,
+      manual_discount_percentage: input.manual_discount_percentage ?? null,
       payment_methods: input.payment_methods.map((allocation) =>
         this.paymentMethodRepo.create({
           method: allocation.method,
@@ -476,6 +479,10 @@ export class TypeOrmSaleRepository extends SaleRepositoryPort {
     );
     sale.split_ticket_groups = buildSplitTicketGroups(entity);
     sale.invoice_status = entity.invoice_status as Sale["invoice_status"];
+    sale.manual_discount_amount = entity.manual_discount_amount ?? null;
+    sale.manual_discount_modality =
+      (entity.manual_discount_modality as Sale["manual_discount_modality"]) ?? null;
+    sale.manual_discount_percentage = entity.manual_discount_percentage ?? null;
     sale.cae = entity.cae;
     sale.cae_vto = entity.cae_vto;
     sale.cbte_nro = entity.cbte_nro;

@@ -56,6 +56,46 @@ class SaleItemSourceConstraint implements ValidatorConstraintInterface {
   }
 }
 
+@ValidatorConstraint({ name: "manualDiscountShape", async: false })
+class ManualDiscountShapeConstraint implements ValidatorConstraintInterface {
+  validate(_value: unknown, args: ValidationArguments): boolean {
+    const obj = args.object as Record<string, unknown>;
+    const modality = obj.modality;
+    if (modality !== "fixed" && modality !== "percentage") {
+      return false;
+    }
+    const amount = obj.amount;
+    const percentage = obj.percentage;
+    if (typeof amount !== "string" || amount === "") {
+      return false;
+    }
+    if (modality === "fixed") {
+      return percentage === undefined || percentage === null || percentage === "";
+    }
+    return typeof percentage === "string" && percentage !== "";
+  }
+
+  defaultMessage(): string {
+    return "manual_discount requires amount for fixed, and amount plus percentage for percentage";
+  }
+}
+
+export class ManualDiscountDto {
+  @IsIn(["fixed", "percentage"])
+  modality!: "fixed" | "percentage";
+
+  @IsOptional()
+  @Validate(MoneyStringOrEmptyConstraint)
+  amount?: string;
+
+  @IsOptional()
+  @Validate(MoneyStringOrEmptyConstraint)
+  percentage?: string;
+
+  @Validate(ManualDiscountShapeConstraint)
+  _shape!: string;
+}
+
 export class PaymentMethodAllocationDto {
   @IsIn(PAYMENT_METHODS)
   method!: PaymentMethod;
@@ -158,6 +198,11 @@ export class CreateSaleDto {
   @IsBoolean()
   @Type(() => Boolean)
   invoice_requested?: boolean;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ManualDiscountDto)
+  manual_discount?: ManualDiscountDto;
 }
 
 export class SaleItemResponseDto {
@@ -202,6 +247,9 @@ export class SaleResponseDto {
   id!: string;
   user_id!: string;
   total!: string;
+  manual_discount_amount!: string | null;
+  manual_discount_modality!: "fixed" | "percentage" | null;
+  manual_discount_percentage!: string | null;
   payment_methods!: PaymentMethodAllocationDto[];
   split_ticket_groups!: SaleSplitTicketGroupResponseDto[] | null;
   items!: SaleItemResponseDto[];
