@@ -25,56 +25,13 @@ import { SaleInputNormalizer } from "./sale-input-normalizer";
 import { SalePaymentPolicy } from "./sale-payment-policy";
 import { SaleItemResolver } from "./sale-item-resolver";
 import { SalePricingCalculator } from "./sale-pricing-calculator";
+import { SaleFiscalOrchestrator } from "./sale-fiscal-orchestrator";
 
 export {
   CreateManualDiscountInput,
   CreateSaleInput,
   CreateSaleItemInput,
 };
-
-function allocateManualDiscountAcrossInvoiceLines(
-  lines: { line_total: string; iva_rate: string }[],
-  subtotal: Decimal,
-  discount: Decimal,
-): { line_total: string; iva_rate: string }[] {
-  if (discount.eq(0) || lines.length === 0) {
-    return lines;
-  }
-
-  const finalTotal = subtotal.sub(discount);
-  const adjusted: { line_total: string; iva_rate: string }[] = [];
-  let allocated = Money.zero();
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const lineTotal = Money.parse(line.line_total);
-    if (i === lines.length - 1) {
-      const residual = finalTotal.sub(allocated);
-      if (residual.lt(0)) {
-        throw new ValidationError(
-          "manual discount allocation produced a negative invoice line",
-        );
-      }
-      adjusted.push({
-        line_total: Money.toString(residual),
-        iva_rate: line.iva_rate,
-      });
-    } else {
-      const share = lineTotal
-        .div(subtotal)
-        .mul(discount)
-        .toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
-      const lineFinal = lineTotal.sub(share);
-      allocated = allocated.add(lineFinal);
-      adjusted.push({
-        line_total: Money.toString(lineFinal),
-        iva_rate: line.iva_rate,
-      });
-    }
-  }
-
-  return adjusted;
-}
 
 @Injectable()
 /**
@@ -93,6 +50,7 @@ export class CreateSaleUseCase {
   private readonly paymentPolicy = new SalePaymentPolicy();
   private readonly itemResolver: SaleItemResolver;
   private readonly pricingCalculator = new SalePricingCalculator();
+  private readonly fiscalOrchestrator: SaleFiscalOrchestrator;
 
   constructor(
     private readonly products: ProductRepositoryPort,
@@ -101,10 +59,14 @@ export class CreateSaleUseCase {
     private readonly issueInvoice: IssueArcaInvoiceUseCase,
     private readonly promotionResolver: PromotionResolverService,
     @Optional() itemResolver?: SaleItemResolver,
+    @Optional() fiscalOrchestrator?: SaleFiscalOrchestrator,
   ) {
     this.itemResolver =
       itemResolver ??
       new SaleItemResolver(this.products, this.promotionResolver);
+    this.fiscalOrchestrator =
+      fiscalOrchestrator ??
+      new SaleFiscalOrchestrator(this.issueInvoice);
   }
 
   async execute(input: CreateSaleInput): Promise<Sale> {
@@ -124,49 +86,13 @@ export class CreateSaleUseCase {
     const manualDiscount = pricing.manualDiscount;
     const finalTotal = pricing.finalTotal;
 
-    let invoiceResult: {
-      cae: string;
-      cae_vto: string;
-      cbte_nro: number;
-      cbte_tipo: number;
-      pto_vta: number;
-    } | null = null;
-
-    if (invoiceRequested) {
-      const invoiceItems = saleItems.map((si, idx) => {
-        const line = resolved.lines[idx];
-        if (si.iva) {
-          return { line_total: si.subtotal, iva_rate: si.iva };
-        }
-        return {
-          line_total: si.subtotal,
-          iva_rate: (line.kind !== "ad-hoc" ? line.product.iva : null) ?? "0",
-        };
-      });
-
-      const adjustedInvoiceItems = allocateManualDiscountAcrossInvoiceLines(
-        invoiceItems,
-        postPromotionSubtotal,
-        manualDiscount.amount,
-      );
-
-      try {
-        invoiceResult = await this.issueInvoice.issue(adjustedInvoiceItems);
-      } catch (error) {
-        this.logger.error(
-          `ARCA invoice issuance failed; checkout will complete without fiscal invoice`,
-          error instanceof Error ? error.stack : undefined,
-        );
-        // invoiceResult remains null — sale persists with 'failed' status
-      }
-    }
-
-    const invoiceStatus: InvoiceStatus = invoiceResult
-      ? "issued"
-      : invoiceRequested
-        ? "failed"
-        : "none";
-    const invoiceRequestedAt = invoiceRequested ? new Date() : null;
+    const fiscal = await this.fiscalOrchestrator.issueIfRequested({
+      invoiceRequested,
+      saleItems,
+      resolvedLines: resolved.lines,
+      postPromotionSubtotal,
+      manualDiscountAmount: manualDiscount.amount,
+    });
 
     const sale = await this.sales.create({
       user_id: normalized.userId,
@@ -177,13 +103,13 @@ export class CreateSaleUseCase {
       manual_discount_amount: Money.toString(manualDiscount.amount),
       manual_discount_modality: manualDiscount.modality,
       manual_discount_percentage: manualDiscount.percentage,
-      invoice_status: invoiceStatus,
-      cae: invoiceResult?.cae ?? null,
-      cae_vto: invoiceResult?.cae_vto ?? null,
-      cbte_nro: invoiceResult?.cbte_nro ?? null,
-      cbte_tipo: invoiceResult?.cbte_tipo ?? null,
-      pto_vta: invoiceResult?.pto_vta ?? null,
-      invoice_requested_at: invoiceRequestedAt,
+      invoice_status: fiscal.invoiceStatus,
+      cae: fiscal.fiscalFields.cae,
+      cae_vto: fiscal.fiscalFields.cae_vto,
+      cbte_nro: fiscal.fiscalFields.cbte_nro,
+      cbte_tipo: fiscal.fiscalFields.cbte_tipo,
+      pto_vta: fiscal.fiscalFields.pto_vta,
+      invoice_requested_at: fiscal.invoiceRequestedAt,
     });
 
     // Deduct stock for managed catalog items (ad-hoc items are skipped)

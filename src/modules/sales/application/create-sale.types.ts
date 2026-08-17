@@ -1,5 +1,6 @@
 import { Decimal } from "decimal.js";
 import {
+  InvoiceStatus,
   ManualDiscountModality,
   PaymentMethodAllocation,
   SaleItemSplitTicketInput,
@@ -157,3 +158,18 @@ export interface PricingResult {
   manualDiscount: ResolvedManualDiscount;
   finalTotal: Decimal;
 }
+
+export interface FiscalFields {
+  cae: string | null;
+  cae_vto: string | null;
+  cbte_nro: number | null;
+  cbte_tipo: number | null;
+  pto_vta: number | null;
+}
+
+export interface FiscalResult {
+  invoiceStatus: InvoiceStatus;
+  invoiceRequestedAt: Date | null;
+  fiscalFields: FiscalFields;
+}
+
