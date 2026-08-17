@@ -1,3 +1,4 @@
+import { Decimal } from "decimal.js";
 import {
   ManualDiscountModality,
   PaymentMethodAllocation,
@@ -6,6 +7,7 @@ import {
 } from "../domain/sale.entity";
 import { Product } from "../../products/domain/product.entity";
 import { ResolvedPromotion } from "../../promotions/application/promotion-resolver.service";
+import { SaleItemCreateData } from "./sale.repository.port";
 
 export type PromotionResolutionResult = ResolvedPromotion;
 
@@ -128,4 +130,30 @@ export interface ResolvedSaleLines {
   lines: ResolvedSaleLine[];
   promotionsByLineId: Map<string, PromotionResolutionResult | null>;
   promotionsByOriginalIndex?: Map<number, PromotionResolutionResult | null>;
+}
+
+export interface ResolvedManualDiscount {
+  amount: Decimal;
+  modality: ManualDiscountModality | null;
+  percentage: string | null;
+}
+
+export interface PricedSaleLine {
+  lineId: string;
+  originalIndex: number;
+  kind: ResolvedSaleLine["kind"];
+  quantity: number;
+  unitPrice: Decimal;
+  grossSubtotal: Decimal;
+  discountAmount: Decimal;
+  discountedSubtotal: Decimal;
+  saleItem: SaleItemCreateData;
+}
+
+export interface PricingResult {
+  pricedLines: PricedSaleLine[];
+  saleItems: SaleItemCreateData[];
+  postPromotionSubtotal: Decimal;
+  manualDiscount: ResolvedManualDiscount;
+  finalTotal: Decimal;
 }

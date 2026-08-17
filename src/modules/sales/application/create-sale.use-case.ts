@@ -24,79 +24,13 @@ import {
 import { SaleInputNormalizer } from "./sale-input-normalizer";
 import { SalePaymentPolicy } from "./sale-payment-policy";
 import { SaleItemResolver } from "./sale-item-resolver";
+import { SalePricingCalculator } from "./sale-pricing-calculator";
 
 export {
   CreateManualDiscountInput,
   CreateSaleInput,
   CreateSaleItemInput,
 };
-
-const AD_HOC_IVA_RATE = "21.00";
-
-interface ResolvedManualDiscount {
-  amount: Decimal;
-  modality: ManualDiscountModality | null;
-  percentage: string | null;
-}
-
-function requireMoney(value: string | undefined, message: string): Decimal {
-  if (typeof value !== "string" || value === "") {
-    throw new ValidationError(message);
-  }
-  return Money.parse(value);
-}
-
-function resolveManualDiscount(
-  input: CreateManualDiscountInput | null | undefined,
-  subtotal: Decimal,
-): ResolvedManualDiscount {
-  if (!input) {
-    return { amount: Money.zero(), modality: null, percentage: null };
-  }
-
-  const amount = requireMoney(input.amount, "manual discount amount is required");
-  if (amount.lt(0)) {
-    throw new ValidationError("discount must be non-negative");
-  }
-
-  if (input.modality === "fixed") {
-    if (amount.gt(subtotal)) {
-      throw new ValidationError("discount exceeds subtotal");
-    }
-    if (amount.eq(0)) {
-      return { amount: Money.zero(), modality: null, percentage: null };
-    }
-    return { amount, modality: "fixed", percentage: null };
-  }
-
-  const percentage = requireMoney(
-    input.percentage,
-    "manual discount percentage is required",
-  );
-  if (percentage.lt(0) || percentage.gt(100)) {
-    throw new ValidationError("percentage must be between 0 and 100");
-  }
-
-  const expected = subtotal
-    .mul(percentage)
-    .div(100)
-    .toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
-
-  if (expected.sub(amount).abs().gt(0.01)) {
-    throw new ValidationError("percentage amount mismatch");
-  }
-  if (expected.gt(subtotal)) {
-    throw new ValidationError("discount exceeds subtotal");
-  }
-  if (expected.eq(0)) {
-    return { amount: Money.zero(), modality: null, percentage: null };
-  }
-  return {
-    amount: expected,
-    modality: "percentage",
-    percentage: Money.toString(percentage),
-  };
-}
 
 function allocateManualDiscountAcrossInvoiceLines(
   lines: { line_total: string; iva_rate: string }[],
@@ -158,6 +92,7 @@ export class CreateSaleUseCase {
   private readonly inputNormalizer = new SaleInputNormalizer();
   private readonly paymentPolicy = new SalePaymentPolicy();
   private readonly itemResolver: SaleItemResolver;
+  private readonly pricingCalculator = new SalePricingCalculator();
 
   constructor(
     private readonly products: ProductRepositoryPort,
@@ -179,104 +114,15 @@ export class CreateSaleUseCase {
     const invoiceRequested = normalized.invoiceRequested;
 
     const resolved = await this.itemResolver.resolve(normalized);
-
-    const saleItems: SaleItemCreateData[] = [];
-    let total = Money.zero();
-
-    for (const line of resolved.lines) {
-      const unitPrice = Money.parse(line.unitPrice);
-
-      if (line.kind === "ad-hoc") {
-        const grossSubtotal = Money.multiply(unitPrice, line.quantity);
-        let discountAmount = Money.zero();
-        let appliedPromotionId: string | null = null;
-        let appliedPromotionType: string | null = null;
-
-        const promo =
-          resolved.promotionsByOriginalIndex?.get(line.originalIndex) ??
-          resolved.promotionsByLineId.get(line.lineId) ??
-          null;
-
-        if (promo) {
-          discountAmount = Money.parse(promo.discountAmount);
-          appliedPromotionId = promo.promotionId;
-          appliedPromotionType = promo.type;
-        }
-
-        // Filter out product-scoped promotions; ad-hoc items only receive store promotions
-        const storePromotions = (promo?.applied_promotions ?? []).filter(
-          (p) => p.promotion_scope === "store",
-        );
-        let storeDiscountTotal = Money.zero();
-        for (const p of storePromotions) {
-          storeDiscountTotal = Money.add(storeDiscountTotal, Money.parse(p.discount_amount));
-        }
-        const storeDiscountAmount = Money.toString(storeDiscountTotal);
-
-        const discountedSubtotal = Money.subtract(grossSubtotal, storeDiscountTotal);
-
-        saleItems.push({
-          product_id: line.lineId,
-          name: line.adHoc.name ?? null,
-          description: line.adHoc.description ?? null,
-          iva: AD_HOC_IVA_RATE,
-          quantity: line.quantity,
-          unit_price: Money.toString(unitPrice),
-          subtotal: Money.toString(discountedSubtotal),
-          discount_amount: storeDiscountAmount,
-          applied_promotions: storePromotions,
-          applied_promotion_id: appliedPromotionId,
-          applied_promotion_type: appliedPromotionType,
-        });
-        total = Money.add(total, discountedSubtotal);
-      } else if (line.kind === "catalog-manual") {
-        const subtotal = line.lineTotal;
-        saleItems.push({
-          product_id: line.lineId,
-          quantity: 1,
-          unit_price: Money.toString(unitPrice),
-          subtotal,
-          discount_amount: "0.00",
-          applied_promotions: [],
-          applied_promotion_id: null,
-          applied_promotion_type: null,
-          ...(line.ivaForPersistence ? { iva: line.ivaForPersistence } : {}),
-        });
-        total = Money.add(total, unitPrice);
-      } else {
-        const grossSubtotal = Money.multiply(unitPrice, line.quantity);
-        let discountAmount = Money.zero();
-        let appliedPromotionId: string | null = null;
-        let appliedPromotionType: string | null = null;
-
-        const promo =
-          resolved.promotionsByOriginalIndex?.get(line.originalIndex) ??
-          resolved.promotionsByLineId.get(line.lineId) ??
-          null;
-
-        if (promo) {
-          discountAmount = Money.parse(promo.discountAmount);
-          appliedPromotionId = promo.promotionId;
-          appliedPromotionType = promo.type;
-        }
-
-        const discountedSubtotal = Money.subtract(grossSubtotal, discountAmount);
-
-        saleItems.push({
-          product_id: line.lineId,
-          quantity: line.quantity,
-          unit_price: Money.toString(unitPrice),
-          subtotal: Money.toString(discountedSubtotal),
-          discount_amount: Money.toString(discountAmount),
-          applied_promotions: promo?.applied_promotions ?? [],
-          applied_promotion_id: appliedPromotionId,
-          applied_promotion_type: appliedPromotionType,
-          ...(line.ivaForPersistence ? { iva: line.ivaForPersistence } : {}),
-        });
-
-        total = Money.add(total, discountedSubtotal);
-      }
-    }
+    const pricing = this.pricingCalculator.price({
+      resolved,
+      manualDiscount: normalized.manualDiscount,
+      invoiceRequested,
+    });
+    const saleItems = pricing.saleItems;
+    const postPromotionSubtotal = pricing.postPromotionSubtotal;
+    const manualDiscount = pricing.manualDiscount;
+    const finalTotal = pricing.finalTotal;
 
     let invoiceResult: {
       cae: string;
@@ -285,16 +131,6 @@ export class CreateSaleUseCase {
       cbte_tipo: number;
       pto_vta: number;
     } | null = null;
-
-    const postPromotionSubtotal = total;
-    const manualDiscount = resolveManualDiscount(
-      normalized.manualDiscount,
-      postPromotionSubtotal,
-    );
-    const finalTotal = Money.subtract(postPromotionSubtotal, manualDiscount.amount);
-    if (finalTotal.lt(0)) {
-      throw new ValidationError("discount exceeds subtotal");
-    }
 
     if (invoiceRequested) {
       const invoiceItems = saleItems.map((si, idx) => {
