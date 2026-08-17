@@ -1,8 +1,15 @@
 import { Test, TestingModule } from "@nestjs/testing";
-import { getRepositoryToken } from "@nestjs/typeorm";
 import { PushUseCase } from "../push.use-case";
 import { IdempotencyService } from "../idempotency.service";
-import { SyncTombstoneEntity } from "../../infrastructure/sync-tombstone.entity";
+import {
+  SYNC_OPERATION_HANDLERS,
+  SyncOperationHandler,
+} from "../ports/sync-operation-handler.port";
+import { SaleSyncHandler } from "../handlers/sale-sync.handler";
+import { StockSyncHandler } from "../handlers/stock-sync.handler";
+import { ProductSyncHandler } from "../handlers/product-sync.handler";
+import { PromotionSyncHandler } from "../handlers/promotion-sync.handler";
+import { ProviderPurchaseSyncHandler } from "../handlers/provider-purchase-sync.handler";
 import { SaleRepositoryPort } from "../../../sales/application/sale.repository.port";
 import { InventoryRepositoryPort } from "../../../inventory/application/inventory.repository.port";
 import { ProductRepositoryPort } from "../../../products/application/product.repository.port";
@@ -10,8 +17,9 @@ import { PromotionRepositoryPort } from "../../../promotions/application/promoti
 import { ProviderPurchaseRepositoryPort } from "../../../reports/application/provider-purchase.repository.port";
 import { TransactionRunnerPort } from "../../../../shared/database/transaction-runner.port";
 import { AutoLabelJobService } from "../../../label-printer/application/auto-label-job.service";
+import { getRepositoryToken } from "@nestjs/typeorm";
+import { SyncTombstoneEntity } from "../../infrastructure/sync-tombstone.entity";
 import type { SyncPushEntry } from "../sync.types";
-import { Sale } from "../../../sales/domain/sale.entity";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -119,12 +127,13 @@ const mockAutoLabel = {
   onProductPriceChanged: jest.fn(),
 };
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 describe("PushUseCase", () => {
   let useCase: PushUseCase;
+  let saleHandler: SaleSyncHandler;
+  let stockHandler: StockSyncHandler;
+  let productHandler: ProductSyncHandler;
+  let promotionHandler: PromotionSyncHandler;
+  let providerPurchaseHandler: ProviderPurchaseSyncHandler;
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -133,6 +142,11 @@ describe("PushUseCase", () => {
       providers: [
         PushUseCase,
         { provide: IdempotencyService, useValue: mockIdempotency },
+        SaleSyncHandler,
+        StockSyncHandler,
+        ProductSyncHandler,
+        PromotionSyncHandler,
+        ProviderPurchaseSyncHandler,
         { provide: SaleRepositoryPort, useValue: mockSaleRepo },
         { provide: InventoryRepositoryPort, useValue: mockInventoryRepo },
         { provide: ProductRepositoryPort, useValue: mockProductRepo },
@@ -140,16 +154,73 @@ describe("PushUseCase", () => {
         { provide: ProviderPurchaseRepositoryPort, useValue: mockProviderPurchaseRepo },
         { provide: TransactionRunnerPort, useValue: mockTransactionRunner },
         { provide: AutoLabelJobService, useValue: mockAutoLabel },
-            { provide: getRepositoryToken(SyncTombstoneEntity), useValue: mockTombstoneRepo },
+        { provide: getRepositoryToken(SyncTombstoneEntity), useValue: mockTombstoneRepo },
+        {
+          provide: SYNC_OPERATION_HANDLERS,
+          useFactory: (
+            sale: SaleSyncHandler,
+            stock: StockSyncHandler,
+            product: ProductSyncHandler,
+            promotion: PromotionSyncHandler,
+            providerPurchase: ProviderPurchaseSyncHandler,
+          ): SyncOperationHandler[] => [
+            sale,
+            stock,
+            product,
+            promotion,
+            providerPurchase,
+          ],
+          inject: [
+            SaleSyncHandler,
+            StockSyncHandler,
+            ProductSyncHandler,
+            PromotionSyncHandler,
+            ProviderPurchaseSyncHandler,
+          ],
+        },
       ],
     }).compile();
 
     useCase = module.get<PushUseCase>(PushUseCase);
+    saleHandler = module.get<SaleSyncHandler>(SaleSyncHandler);
+    stockHandler = module.get<StockSyncHandler>(StockSyncHandler);
+    productHandler = module.get<ProductSyncHandler>(ProductSyncHandler);
+    promotionHandler = module.get<PromotionSyncHandler>(PromotionSyncHandler);
+    providerPurchaseHandler = module.get<ProviderPurchaseSyncHandler>(
+      ProviderPurchaseSyncHandler,
+    );
   });
 
-  // -----------------------------------------------------------------------
-  // RED — duplicate idempotency
-  // -----------------------------------------------------------------------
+  // -------------------------------------------------------------------------
+  // Constructor & Handler Registry
+  // -------------------------------------------------------------------------
+
+  describe("constructor and handler registry", () => {
+    it("fails fast when duplicate handlers register the same operation", () => {
+      const handler1: SyncOperationHandler = {
+        supportedOperations: new Set(["sale_create"]),
+        handle: jest.fn(),
+      };
+      const handler2: SyncOperationHandler = {
+        supportedOperations: new Set(["sale_create"]),
+        handle: jest.fn(),
+      };
+
+      expect(
+        () =>
+          new PushUseCase(mockIdempotency as any, [handler1, handler2]),
+      ).toThrow(/duplicate.*sale_create/i);
+    });
+
+    it("handles empty handler array gracefully without errors", () => {
+      const emptyUseCase = new PushUseCase(mockIdempotency as any, []);
+      expect(emptyUseCase).toBeDefined();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Duplicate Idempotency
+  // -------------------------------------------------------------------------
 
   describe("duplicate idempotency", () => {
     it("returns the original result without re-creating when a sale is a duplicate", async () => {
@@ -167,7 +238,6 @@ describe("PushUseCase", () => {
       const result = response.results[0];
       expect(result.status).toBe("duplicate");
       expect(result.server_id).toBe("srv-sale-1");
-      // Must NOT call saleRepo.create for a duplicate
       expect(mockSaleRepo.create).not.toHaveBeenCalled();
     });
 
@@ -186,11 +256,36 @@ describe("PushUseCase", () => {
       expect(response.results[0].status).toBe("duplicate");
       expect(mockInventoryRepo.adjustBalance).not.toHaveBeenCalled();
     });
+
+    it("duplicate entry does NOT block subsequent entries in batch", async () => {
+      mockIdempotency.hasBeenProcessed
+        .mockResolvedValueOnce(true) // First entry is duplicate
+        .mockResolvedValueOnce(false); // Second entry is new
+      mockIdempotency.checkIdempotencyViolation.mockResolvedValue(undefined);
+      mockIdempotency.findExistingResult.mockResolvedValue({
+        status: "accepted",
+        server_id: "srv-dup-1",
+      });
+
+      mockSaleRepo.create.mockResolvedValue({ id: "srv-sale-2" });
+
+      const entries = [
+        makeSaleEntry({ id: "out-dup", idempotency_key: "inst:dup" }),
+        makeSaleEntry({ id: "out-new", idempotency_key: "inst:new" }),
+      ];
+
+      const response = await useCase.execute({ entries });
+
+      expect(response.results).toHaveLength(2);
+      expect(response.results[0].status).toBe("duplicate");
+      expect(response.results[1].status).toBe("accepted");
+      expect(response.results[1].server_id).toBe("srv-sale-2");
+    });
   });
 
-  // -----------------------------------------------------------------------
-  // RED — idempotency violation
-  // -----------------------------------------------------------------------
+  // -------------------------------------------------------------------------
+  // Idempotency Violation
+  // -------------------------------------------------------------------------
 
   describe("idempotency violation", () => {
     it("marks the entry as conflict when idempotency violation is detected", async () => {
@@ -206,11 +301,104 @@ describe("PushUseCase", () => {
       expect(response.results[0].status).toBe("conflict");
       expect(response.results[0].reason).toContain("Idempotency violation");
     });
+
+    it("idempotency violation with string rejection error maps reason cleanly", async () => {
+      mockIdempotency.hasBeenProcessed.mockResolvedValue(false);
+      mockIdempotency.checkIdempotencyViolation.mockRejectedValue("Raw string error");
+
+      const input = [makeSaleEntry()];
+      const response = await useCase.execute({ entries: input });
+
+      expect(response.results[0].status).toBe("conflict");
+      expect(response.results[0].reason).toBe("Raw string error");
+    });
   });
 
-  // -----------------------------------------------------------------------
-  // RED — successful sale push
-  // -----------------------------------------------------------------------
+  // -------------------------------------------------------------------------
+  // Runtime Type Guard Validation
+  // -------------------------------------------------------------------------
+
+  describe("payload and entry validation", () => {
+    it("returns validation_error when payload fails type guard", async () => {
+      mockIdempotency.hasBeenProcessed.mockResolvedValue(false);
+      mockIdempotency.checkIdempotencyViolation.mockResolvedValue(undefined);
+
+      const invalidEntry: SyncPushEntry = {
+        id: "out-bad",
+        idempotency_key: "inst-1:out-bad",
+        operation_type: "sale_create",
+        aggregate_type: "sale",
+        aggregate_id: "sale-1",
+        payload: {
+          total: undefined,
+        },
+        actor_user_id: "user-1",
+        created_at: "2026-07-18T10:00:00.000Z",
+      };
+
+      const response = await useCase.execute({ entries: [invalidEntry] });
+
+      expect(response.results).toHaveLength(1);
+      expect(response.results[0].status).toBe("validation_error");
+      expect(response.results[0].reason).toContain("Invalid payload");
+      expect(mockSaleRepo.create).not.toHaveBeenCalled();
+    });
+
+    it("returns validation_error when aggregate_type does not match operation_type", async () => {
+      mockIdempotency.hasBeenProcessed.mockResolvedValue(false);
+      mockIdempotency.checkIdempotencyViolation.mockResolvedValue(undefined);
+
+      const mismatchedEntry: SyncPushEntry = {
+        id: "out-mismatch",
+        idempotency_key: "inst-1:out-mismatch",
+        operation_type: "sale_create",
+        aggregate_type: "stock" as any,
+        aggregate_id: "sale-1",
+        payload: makeSaleEntry().payload,
+        actor_user_id: "user-1",
+        created_at: "2026-07-18T10:00:00.000Z",
+      };
+
+      const response = await useCase.execute({ entries: [mismatchedEntry] });
+
+      expect(response.results).toHaveLength(1);
+      expect(response.results[0].status).toBe("validation_error");
+      expect(response.results[0].reason).toContain("requires aggregate_type 'sale'");
+    });
+
+    it("returns validation_error when operation is not supported by any handler", async () => {
+      mockIdempotency.hasBeenProcessed.mockResolvedValue(false);
+      mockIdempotency.checkIdempotencyViolation.mockResolvedValue(undefined);
+
+      // Custom use-case without promotion handler
+      const partialUseCase = new PushUseCase(mockIdempotency as any, [
+        saleHandler,
+      ]);
+
+      const promoEntry: SyncPushEntry = {
+        id: "out-p",
+        idempotency_key: "inst:p",
+        operation_type: "promotion_create",
+        aggregate_type: "promotion",
+        aggregate_id: "promo-1",
+        payload: {
+          name: "Promo",
+          scope: "global",
+          type: "percentage",
+        },
+        created_at: "2026-07-18T10:00:00.000Z",
+      };
+
+      const response = await partialUseCase.execute({ entries: [promoEntry] });
+
+      expect(response.results[0].status).toBe("validation_error");
+      expect(response.results[0].reason).toContain("not supported");
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Operation Dispatch & Success
+  // -------------------------------------------------------------------------
 
   describe("sale_create push", () => {
     it("creates the sale and returns accepted with server metadata", async () => {
@@ -222,7 +410,7 @@ describe("PushUseCase", () => {
         total: "100.00",
         invoice_status: "none",
         created_at: new Date(),
-      } as Sale;
+      };
 
       mockSaleRepo.create.mockResolvedValue(mockSale);
 
@@ -234,25 +422,18 @@ describe("PushUseCase", () => {
       expect(result.status).toBe("accepted");
       expect(result.server_id).toBe("srv-sale-1");
 
-      // Verify it recorded the result
       expect(mockIdempotency.recordResult).toHaveBeenCalledWith(
         "inst-1:out-1",
-        expect.anything(),
+        input[0].payload,
         expect.objectContaining({
           status: "accepted",
           server_id: "srv-sale-1",
         }),
       );
 
-      // Verify sale was created (basic smoke — the payload mapping belongs to
-      // the implementation design)
       expect(mockSaleRepo.create).toHaveBeenCalled();
     });
   });
-
-  // -----------------------------------------------------------------------
-  // RED — successful stock adjust push
-  // -----------------------------------------------------------------------
 
   describe("stock_adjust push", () => {
     it("adjusts stock and returns accepted", async () => {
@@ -274,58 +455,12 @@ describe("PushUseCase", () => {
       expect(mockInventoryRepo.adjustBalance).toHaveBeenCalledWith(
         "prod-1",
         -2,
-        expect.any(String),
+        "adjustment",
         "sale-1",
         "sale",
       );
     });
   });
-
-  // -----------------------------------------------------------------------
-  // RED — "entry 7 fails, entries 8+ stay pending"
-  // -----------------------------------------------------------------------
-
-  describe("partial failure — later entries remain pending", () => {
-    it("when entry 3 fails, entry 4 stays pending (not attempted)", async () => {
-      // entry 1 (success), entry 2 (success), entry 3 (fail), entry 4 (pending)
-      mockIdempotency.hasBeenProcessed.mockResolvedValue(false);
-      mockIdempotency.checkIdempotencyViolation.mockResolvedValue(undefined);
-
-      // First two succeed
-      mockSaleRepo.create.mockResolvedValue({ id: "srv-1" } as Sale);
-
-      // Third throws transient error
-      mockInventoryRepo.adjustBalance.mockRejectedValue(
-        new Error("Database connection lost"),
-      );
-
-      const entries = [
-        makeSaleEntry({ id: "out-1", idempotency_key: "inst-1:out-1" }),
-        makeSaleEntry({ id: "out-2", idempotency_key: "inst-1:out-2" }),
-        makeStockAdjustEntry({
-          id: "out-3",
-          idempotency_key: "inst-1:out-3",
-        }),
-        makeSaleEntry({ id: "out-4", idempotency_key: "inst-1:out-4" }),
-      ];
-
-      const response = await useCase.execute({ entries });
-
-      expect(response.results).toHaveLength(4);
-      expect(response.results[0].status).toBe("accepted");
-      expect(response.results[1].status).toBe("accepted");
-      expect(response.results[2].status).toBe("transient_error");
-      expect(response.results[2].reason).toContain("Database connection lost");
-
-      // Entry 4 MUST be exactly blocked (not attempted) after entry 3 fails.
-      expect(response.results[3].status).toBe("blocked");
-      expect(response.results[3].reason).toContain("not attempted");
-    });
-  });
-
-  // -----------------------------------------------------------------------
-  // RED — product_create, product_update, product_delete (Slice 5)
-  // -----------------------------------------------------------------------
 
   describe("product operations (Slice 5)", () => {
     it("accepts product_create and returns server_id", async () => {
@@ -392,6 +527,30 @@ describe("PushUseCase", () => {
       expect(response.results[0].server_id).toBe("prod-existing");
     });
 
+    it("returns conflict when product_update has version mismatch", async () => {
+      mockIdempotency.hasBeenProcessed.mockResolvedValue(false);
+      mockIdempotency.checkIdempotencyViolation.mockResolvedValue(undefined);
+
+      mockProductRepo.findById.mockResolvedValue({ updated_at: "v6" });
+
+      const entry: SyncPushEntry = {
+        id: "out-pu-conflict",
+        idempotency_key: "inst-1:out-pu-conflict",
+        operation_type: "product_update",
+        aggregate_type: "product",
+        aggregate_id: "prod-existing",
+        payload: { detalle: "Updated Product" },
+        base_server_version: "v5",
+        actor_user_id: "user-1",
+        created_at: "2026-07-18T10:00:00.000Z",
+      };
+
+      const response = await useCase.execute({ entries: [entry] });
+      expect(response.results[0].status).toBe("conflict");
+      expect(response.results[0].server_version).toBe("v6");
+      expect(mockIdempotency.recordResult).not.toHaveBeenCalled();
+    });
+
     it("accepts product_delete, records tombstone, and returns accepted", async () => {
       mockIdempotency.hasBeenProcessed.mockResolvedValue(false);
       mockIdempotency.checkIdempotencyViolation.mockResolvedValue(undefined);
@@ -412,7 +571,6 @@ describe("PushUseCase", () => {
       const response = await useCase.execute({ entries: [entry] });
       expect(response.results[0].status).toBe("accepted");
 
-      // Assert tombstone was recorded with correct fields
       expect(mockTombstoneRepo.save).toHaveBeenCalledWith(
         expect.objectContaining({
           entity_id: "prod-to-delete",
@@ -421,7 +579,6 @@ describe("PushUseCase", () => {
         }),
       );
     });
-  });
 
     it("product_update with price change triggers auto label job", async () => {
       mockIdempotency.hasBeenProcessed.mockResolvedValue(false);
@@ -499,10 +656,7 @@ describe("PushUseCase", () => {
       expect(response.results[0].status).toBe("accepted");
       expect(mockAutoLabel.onProductPriceChanged).not.toHaveBeenCalled();
     });
-
-  // -----------------------------------------------------------------------
-  // RED — promotion_create, promotion_update, promotion_delete (Slice 5)
-  // -----------------------------------------------------------------------
+  });
 
   describe("promotion operations (Slice 5)", () => {
     it("accepts promotion_create and returns server_id", async () => {
@@ -563,6 +717,29 @@ describe("PushUseCase", () => {
       expect(response.results[0].status).toBe("accepted");
     });
 
+    it("returns conflict on promotion_update version mismatch", async () => {
+      mockIdempotency.hasBeenProcessed.mockResolvedValue(false);
+      mockIdempotency.checkIdempotencyViolation.mockResolvedValue(undefined);
+
+      mockPromotionRepo.findById.mockResolvedValue({ updated_at: "v4" });
+
+      const entry: SyncPushEntry = {
+        id: "out-promo-conflict",
+        idempotency_key: "inst:promo-conflict",
+        operation_type: "promotion_update",
+        aggregate_type: "promotion",
+        aggregate_id: "promo-1",
+        payload: { name: "New Name" },
+        base_server_version: "v3",
+        created_at: "2026-07-18T10:00:00.000Z",
+      };
+
+      const response = await useCase.execute({ entries: [entry] });
+      expect(response.results[0].status).toBe("conflict");
+      expect(response.results[0].server_version).toBe("v4");
+      expect(mockPromotionRepo.update).not.toHaveBeenCalled();
+    });
+
     it("accepts promotion_delete, records tombstone, and returns accepted", async () => {
       mockIdempotency.hasBeenProcessed.mockResolvedValue(false);
       mockIdempotency.checkIdempotencyViolation.mockResolvedValue(undefined);
@@ -583,7 +760,6 @@ describe("PushUseCase", () => {
       const response = await useCase.execute({ entries: [entry] });
       expect(response.results[0].status).toBe("accepted");
 
-      // Assert tombstone was recorded with correct fields
       expect(mockTombstoneRepo.save).toHaveBeenCalledWith(
         expect.objectContaining({
           entity_id: "promo-to-delete",
@@ -593,10 +769,6 @@ describe("PushUseCase", () => {
       );
     });
   });
-
-  // -----------------------------------------------------------------------
-  // RED — provider_purchase_create, provider_purchase_update (Slice 5)
-  // -----------------------------------------------------------------------
 
   describe("provider purchase operations (Slice 5)", () => {
     it("accepts provider_purchase_create and returns server_id", async () => {
@@ -656,6 +828,29 @@ describe("PushUseCase", () => {
       expect(response.results[0].status).toBe("accepted");
     });
 
+    it("returns conflict on provider_purchase_update version mismatch", async () => {
+      mockIdempotency.hasBeenProcessed.mockResolvedValue(false);
+      mockIdempotency.checkIdempotencyViolation.mockResolvedValue(undefined);
+
+      mockProviderPurchaseRepo.findById.mockResolvedValue({ updated_at: "v3" });
+
+      const entry: SyncPushEntry = {
+        id: "out-pp-conflict",
+        idempotency_key: "inst:pp-conflict",
+        operation_type: "provider_purchase_update",
+        aggregate_type: "provider_purchase",
+        aggregate_id: "pp-1",
+        payload: { amount: "100.00" },
+        base_server_version: "v2",
+        created_at: "2026-07-18T10:00:00.000Z",
+      };
+
+      const response = await useCase.execute({ entries: [entry] });
+      expect(response.results[0].status).toBe("conflict");
+      expect(response.results[0].server_version).toBe("v3");
+      expect(mockProviderPurchaseRepo.update).not.toHaveBeenCalled();
+    });
+
     it("accepts provider_purchase_delete, records tombstone, and returns accepted", async () => {
       mockIdempotency.hasBeenProcessed.mockResolvedValue(false);
       mockIdempotency.checkIdempotencyViolation.mockResolvedValue(undefined);
@@ -676,7 +871,6 @@ describe("PushUseCase", () => {
       const response = await useCase.execute({ entries: [entry] });
       expect(response.results[0].status).toBe("accepted");
 
-      // Assert tombstone was recorded with correct fields
       expect(mockTombstoneRepo.save).toHaveBeenCalledWith(
         expect.objectContaining({
           entity_id: "pp-to-delete",
@@ -684,6 +878,106 @@ describe("PushUseCase", () => {
           operation_type: "provider_purchase_delete",
         }),
       );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Cascade Blocking & Error Trapping
+  // -------------------------------------------------------------------------
+
+  describe("partial failure and cascade blocking", () => {
+    it("when an entry fails with transient error, subsequent entries are marked blocked", async () => {
+      mockIdempotency.hasBeenProcessed.mockResolvedValue(false);
+      mockIdempotency.checkIdempotencyViolation.mockResolvedValue(undefined);
+
+      mockSaleRepo.create.mockResolvedValue({ id: "srv-1" });
+      mockInventoryRepo.adjustBalance.mockRejectedValue(
+        new Error("Database connection lost"),
+      );
+
+      const entries = [
+        makeSaleEntry({ id: "out-1", idempotency_key: "inst-1:out-1" }),
+        makeSaleEntry({ id: "out-2", idempotency_key: "inst-1:out-2" }),
+        makeStockAdjustEntry({
+          id: "out-3",
+          idempotency_key: "inst-1:out-3",
+        }),
+        makeSaleEntry({ id: "out-4", idempotency_key: "inst-1:out-4" }),
+      ];
+
+      const response = await useCase.execute({ entries });
+
+      expect(response.results).toHaveLength(4);
+      expect(response.results[0].status).toBe("accepted");
+      expect(response.results[1].status).toBe("accepted");
+      expect(response.results[2].status).toBe("transient_error");
+      expect(response.results[2].reason).toContain("Database connection lost");
+
+      expect(response.results[3].status).toBe("blocked");
+      expect(response.results[3].reason).toContain("not attempted");
+    });
+
+    it("when handler throws a non-Error object, it stringifies reason and cascades blocked", async () => {
+      mockIdempotency.hasBeenProcessed.mockResolvedValue(false);
+      mockIdempotency.checkIdempotencyViolation.mockResolvedValue(undefined);
+
+      mockInventoryRepo.adjustBalance.mockRejectedValue("String failure");
+
+      const entries = [
+        makeStockAdjustEntry({ id: "out-str-fail" }),
+        makeSaleEntry({ id: "out-after" }),
+      ];
+
+      const response = await useCase.execute({ entries });
+
+      expect(response.results[0].status).toBe("transient_error");
+      expect(response.results[0].reason).toBe("String failure");
+      expect(response.results[1].status).toBe("blocked");
+    });
+
+    it("when an entry fails validation, subsequent entries are marked blocked", async () => {
+      mockIdempotency.hasBeenProcessed.mockResolvedValue(false);
+      mockIdempotency.checkIdempotencyViolation.mockResolvedValue(undefined);
+
+      const entries = [
+        {
+          ...makeSaleEntry({ id: "out-bad", idempotency_key: "inst-1:out-bad" }),
+          payload: { total: 123 }, // invalid total type
+        },
+        makeSaleEntry({ id: "out-next", idempotency_key: "inst-1:out-next" }),
+      ];
+
+      const response = await useCase.execute({ entries });
+
+      expect(response.results).toHaveLength(2);
+      expect(response.results[0].status).toBe("validation_error");
+      expect(response.results[1].status).toBe("blocked");
+    });
+
+    it("when an entry encounters version conflict, subsequent entries are marked blocked", async () => {
+      mockIdempotency.hasBeenProcessed.mockResolvedValue(false);
+      mockIdempotency.checkIdempotencyViolation.mockResolvedValue(undefined);
+
+      mockProductRepo.findById.mockResolvedValue({ updated_at: "v9" });
+
+      const entries = [
+        {
+          id: "out-conf",
+          idempotency_key: "inst:conf",
+          operation_type: "product_update" as const,
+          aggregate_type: "product" as const,
+          aggregate_id: "prod-1",
+          payload: { detalle: "Change" },
+          base_server_version: "v1",
+          created_at: "2026-07-18T10:00:00.000Z",
+        },
+        makeSaleEntry({ id: "out-blocked" }),
+      ];
+
+      const response = await useCase.execute({ entries });
+
+      expect(response.results[0].status).toBe("conflict");
+      expect(response.results[1].status).toBe("blocked");
     });
   });
 });

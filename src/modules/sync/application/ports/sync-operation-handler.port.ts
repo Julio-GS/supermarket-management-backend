@@ -25,3 +25,6 @@ export interface SyncOperationHandler<
   readonly supportedOperations: ReadonlySet<TOperation>;
   handle(entry: EntryForOperation<TOperation>): Promise<SyncHandlerResult>;
 }
+
+export const SYNC_OPERATION_HANDLERS = Symbol('SYNC_OPERATION_HANDLERS');
+

@@ -18,6 +18,39 @@ import { RevalidateUseCase } from "./application/revalidate.use-case";
 import { IdempotencyService } from "./application/idempotency.service";
 import { IdempotencyRecordEntity } from "./infrastructure/idempotency-record.entity";
 import { SyncTombstoneEntity } from "./infrastructure/sync-tombstone.entity";
+import { SaleSyncHandler } from "./application/handlers/sale-sync.handler";
+import { StockSyncHandler } from "./application/handlers/stock-sync.handler";
+import { ProductSyncHandler } from "./application/handlers/product-sync.handler";
+import { PromotionSyncHandler } from "./application/handlers/promotion-sync.handler";
+import { ProviderPurchaseSyncHandler } from "./application/handlers/provider-purchase-sync.handler";
+import {
+  SYNC_OPERATION_HANDLERS,
+  SyncOperationHandler,
+} from "./application/ports/sync-operation-handler.port";
+
+export const syncOperationHandlersProvider = {
+  provide: SYNC_OPERATION_HANDLERS,
+  useFactory: (
+    sale: SaleSyncHandler,
+    stock: StockSyncHandler,
+    product: ProductSyncHandler,
+    promotion: PromotionSyncHandler,
+    providerPurchase: ProviderPurchaseSyncHandler,
+  ): SyncOperationHandler[] => [
+    sale,
+    stock,
+    product,
+    promotion,
+    providerPurchase,
+  ],
+  inject: [
+    SaleSyncHandler,
+    StockSyncHandler,
+    ProductSyncHandler,
+    PromotionSyncHandler,
+    ProviderPurchaseSyncHandler,
+  ],
+};
 
 @Module({
   imports: [
@@ -38,6 +71,12 @@ import { SyncTombstoneEntity } from "./infrastructure/sync-tombstone.entity";
     PullUseCase,
     RevalidateUseCase,
     IdempotencyService,
+    SaleSyncHandler,
+    StockSyncHandler,
+    ProductSyncHandler,
+    PromotionSyncHandler,
+    ProviderPurchaseSyncHandler,
+    syncOperationHandlersProvider,
   ],
 })
 export class SyncModule {}
