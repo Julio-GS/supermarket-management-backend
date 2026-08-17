@@ -4,6 +4,10 @@ import {
   SaleItemSplitTicketInput,
   SaleSplitTicketGroupInput,
 } from "../domain/sale.entity";
+import { Product } from "../../products/domain/product.entity";
+import { ResolvedPromotion } from "../../promotions/application/promotion-resolver.service";
+
+export type PromotionResolutionResult = ResolvedPromotion;
 
 export interface CreateSaleItemInput {
   product_id?: string;
@@ -62,4 +66,66 @@ export interface AdHocSaleItemInput {
   unitPrice: string;
   quantity: number;
   splitTicket?: SaleItemSplitTicketInput;
+}
+
+export type ResolvedSaleLineKind =
+  | "catalog-fixed"
+  | "catalog-manual"
+  | "ad-hoc";
+
+export type ResolvedSaleLine =
+  | ResolvedCatalogFixedLine
+  | ResolvedCatalogManualLine
+  | ResolvedAdHocLine;
+
+export interface ResolvedCatalogFixedLine {
+  kind: "catalog-fixed";
+  lineId: string;
+  originalIndex: number;
+  product: Product;
+  quantity: number;
+  unitPrice: string;
+  lineTotal?: never;
+  promotionEligible: true;
+  stockManaged: boolean;
+  facturable: boolean;
+  ivaForPersistence: string | null;
+  splitTicket?: SaleItemSplitTicketInput;
+}
+
+export interface ResolvedCatalogManualLine {
+  kind: "catalog-manual";
+  lineId: string;
+  originalIndex: number;
+  product: Product;
+  quantity: 1;
+  unitPrice: string;
+  lineTotal: string;
+  promotionEligible: false;
+  stockManaged: boolean;
+  facturable: boolean;
+  ivaForPersistence: string | null;
+  splitTicket?: SaleItemSplitTicketInput;
+}
+
+export interface ResolvedAdHocLine {
+  kind: "ad-hoc";
+  lineId: string;
+  originalIndex: number;
+  product?: never;
+  adHoc: { name: string; description: string | null };
+  quantity: number;
+  unitPrice: string;
+  lineTotal?: never;
+  promotionEligible: true;
+  stockManaged: false;
+  facturable: true;
+  ivaForPersistence: "21.00";
+  splitTicket?: SaleItemSplitTicketInput;
+}
+
+export interface ResolvedSaleLines {
+  lines: ResolvedSaleLine[];
+  promotionsByLineId: Map<string, PromotionResolutionResult | null>;
+  promotionsByOriginalIndex?: Map<number, PromotionResolutionResult | null>;
 }

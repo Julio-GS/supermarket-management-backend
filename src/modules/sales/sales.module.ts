@@ -11,6 +11,7 @@ import { SaleItemEntity } from "./infrastructure/typeorm-sale-item.entity";
 import { SalePaymentMethodEntity } from "./infrastructure/typeorm-sale-payment-method.entity";
 import { SaleTicketAllocationEntity } from "./infrastructure/typeorm-sale-ticket-allocation.entity";
 import { CreateSaleUseCase } from "./application/create-sale.use-case";
+import { SaleItemResolver } from "./application/sale-item-resolver";
 import { ListSalesUseCase } from "./application/list-sales.use-case";
 import { GetSaleUseCase } from "./application/get-sale.use-case";
 import { IssueArcaInvoiceUseCase } from "./application/issue-arca-invoice.use-case";
@@ -50,6 +51,7 @@ import { ReadCacheModule } from "../../shared/cache/read-cache.module";
       useClass: ArcaLoggerAlertAdapter,
     },
     CreateSaleUseCase,
+    SaleItemResolver,
     ListSalesUseCase,
     GetSaleUseCase,
     IssueArcaInvoiceUseCase,

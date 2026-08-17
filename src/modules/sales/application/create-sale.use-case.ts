@@ -1,7 +1,6 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, Optional } from "@nestjs/common";
 import { Decimal } from "decimal.js";
 import { ProductRepositoryPort } from "../../products/application/product.repository.port";
-import { Product } from "../../products/domain/product.entity";
 import { SaleRepositoryPort, SaleItemCreateData } from "./sale.repository.port";
 import { InventoryRepositoryPort } from "../../inventory/application/inventory.repository.port";
 import { IssueArcaInvoiceUseCase } from "./issue-arca-invoice.use-case";
@@ -14,19 +13,17 @@ import {
   Sale,
 } from "../domain/sale.entity";
 import {
-  NotFoundError,
   ValidationError,
 } from "../../../shared/errors/domain.error";
 import { Money } from "../../../shared/money/money.helper";
 import {
-  AdHocSaleItemInput,
-  CatalogReferenceSaleItemInput,
   CreateManualDiscountInput,
   CreateSaleInput,
   CreateSaleItemInput,
 } from "./create-sale.types";
 import { SaleInputNormalizer } from "./sale-input-normalizer";
 import { SalePaymentPolicy } from "./sale-payment-policy";
+import { SaleItemResolver } from "./sale-item-resolver";
 
 export {
   CreateManualDiscountInput,
@@ -160,6 +157,7 @@ export class CreateSaleUseCase {
   private readonly logger = new Logger(CreateSaleUseCase.name);
   private readonly inputNormalizer = new SaleInputNormalizer();
   private readonly paymentPolicy = new SalePaymentPolicy();
+  private readonly itemResolver: SaleItemResolver;
 
   constructor(
     private readonly products: ProductRepositoryPort,
@@ -167,7 +165,12 @@ export class CreateSaleUseCase {
     private readonly inventory: InventoryRepositoryPort,
     private readonly issueInvoice: IssueArcaInvoiceUseCase,
     private readonly promotionResolver: PromotionResolverService,
-  ) {}
+    @Optional() itemResolver?: SaleItemResolver,
+  ) {
+    this.itemResolver =
+      itemResolver ??
+      new SaleItemResolver(this.products, this.promotionResolver);
+  }
 
   async execute(input: CreateSaleInput): Promise<Sale> {
     const normalized = this.inputNormalizer.normalize(input);
@@ -175,181 +178,33 @@ export class CreateSaleUseCase {
     const splitTicketGroups = normalized.splitTicketGroups;
     const invoiceRequested = normalized.invoiceRequested;
 
+    const resolved = await this.itemResolver.resolve(normalized);
+
     const saleItems: SaleItemCreateData[] = [];
-    const loadedItems: { product: Product; quantity: number }[] = [];
     let total = Money.zero();
 
-    // Only look up catalog product IDs (skip synthetic ad-hoc IDs)
-    const catalogProductIds = [
-      ...new Set(
-        normalized.items
-          .filter(
-            (item): item is CatalogReferenceSaleItemInput =>
-              item.kind === "catalog-reference",
-          )
-          .map((item) => item.productId),
-      ),
-    ];
-    const productsById = new Map(
-      catalogProductIds.length > 0
-        ? (await this.products.findByIdsForSale(catalogProductIds)).map((product) => [
-            product.id,
-            product,
-          ])
-        : [],
-    );
+    for (const line of resolved.lines) {
+      const unitPrice = Money.parse(line.unitPrice);
 
-    // First pass: validate products and build per-item price data
-    const resolutionItems: {
-      productId: string;
-      unitPrice: string;
-      quantity: number;
-    }[] = [];
-    const manualItemIndices: number[] = [];
-
-    for (let i = 0; i < normalized.items.length; i++) {
-      const item = normalized.items[i];
-
-      if (item.kind === "ad-hoc") {
-        // --- Ad-hoc item ---
-        const unitPrice = Money.parse(item.unitPrice);
-
-        // Ad-hoc items are always facturable with fixed 21% IVA
-        if (invoiceRequested) {
-          // Ad-hoc items are always facturable — no product.facturable check needed
-        }
-
-        // Ad-hoc items skip product-level promotion resolution but are
-        // included so store-wide promotions can apply
-        resolutionItems.push({
-          productId: item.syntheticProductId,
-          unitPrice: Money.toString(unitPrice),
-          quantity: item.quantity,
-        });
-
-        continue;
-      }
-
-      const product = productsById.get(item.productId);
-      if (!product) {
-        throw new NotFoundError(`Product ${item.productId} not found`);
-      }
-
-      const isManual = product.pricing_mode === "manual";
-
-      if (isManual) {
-        // Manual product: requires line_total, quantity must be 1
-        if (item.quantity !== 1) {
-          throw new ValidationError(
-            `Special product ${product.detalle} only allows quantity 1`,
-          );
-        }
-        if (!item.lineTotal || item.lineTotal === "") {
-          throw new ValidationError(
-            `Special product ${product.detalle} requires a line_total amount`,
-          );
-        }
-        const lineTotal = Money.parse(item.lineTotal);
-        if (lineTotal.lte(0)) {
-          throw new ValidationError(
-            `Special product ${product.detalle} requires a positive line_total`,
-          );
-        }
-
-        if (invoiceRequested && !product.facturable) {
-          throw new ValidationError(
-            `Product ${product.detalle} (${product.id}) is not facturable and cannot be invoiced`,
-          );
-        }
-
-        // Manual products skip promotion resolution (null entry)
-        resolutionItems.push({
-          productId: product.id,
-          unitPrice: Money.toString(lineTotal),
-          quantity: 1,
-        });
-        manualItemIndices.push(i);
-
-        loadedItems.push({ product, quantity: 1 });
-      } else {
-        // Fixed product: requires catalog price, rejects line_total override
-        if (item.lineTotal !== undefined && item.lineTotal !== null) {
-          throw new ValidationError(
-            `Product ${product.detalle} has a fixed price; line_total is not allowed`,
-          );
-        }
-
-        if (invoiceRequested && !product.facturable) {
-          throw new ValidationError(
-            `Product ${product.detalle} (${product.id}) is not facturable and cannot be invoiced`,
-          );
-        }
-
-        if (product.costo_final === null) {
-          throw new ValidationError(
-            `Product ${product.detalle} has no catalog price defined`,
-          );
-        }
-
-        const unitPrice = Money.parse(product.costo_final);
-        resolutionItems.push({
-          productId: product.id,
-          unitPrice: Money.toString(unitPrice),
-          quantity: item.quantity,
-        });
-
-        loadedItems.push({ product, quantity: item.quantity });
-      }
-    }
-
-    // Resolve promotions — skip manual items, but include ad-hoc items
-    // (ad-hoc items get store promotions; product promotions won't match synthetic IDs)
-    const fixedResolutionItems = resolutionItems.map((ri, idx) =>
-      manualItemIndices.includes(idx) ? null : ri,
-    );
-    const resolvedPromotions =
-      await this.promotionResolver.resolveForSaleItems(
-        fixedResolutionItems.filter((r): r is NonNullable<typeof r> => r !== null),
-      );
-
-    // Build a resolved-promotions map keyed by original index
-    const resolvedByIndex = new Map<
-      number,
-      (typeof resolvedPromotions)[number] | null
-    >();
-    let promoIdx = 0;
-    for (let i = 0; i < resolutionItems.length; i++) {
-      if (manualItemIndices.includes(i)) {
-        resolvedByIndex.set(i, null);
-      } else {
-        resolvedByIndex.set(i, resolvedPromotions[promoIdx++] ?? null);
-      }
-    }
-
-    // Second pass: build sale items
-    for (let i = 0; i < normalized.items.length; i++) {
-      const item = normalized.items[i];
-      const isAdHoc = item.kind === "ad-hoc";
-      const isManual = manualItemIndices.includes(i);
-      const resItem = resolutionItems[i];
-      const unitPrice = Money.parse(resItem.unitPrice);
-
-      if (isAdHoc) {
-        // Ad-hoc item: subtotal = unit_price × quantity, with promotions from store scope
-        const grossSubtotal = Money.multiply(unitPrice, resItem.quantity);
+      if (line.kind === "ad-hoc") {
+        const grossSubtotal = Money.multiply(unitPrice, line.quantity);
         let discountAmount = Money.zero();
         let appliedPromotionId: string | null = null;
         let appliedPromotionType: string | null = null;
 
-        const resolved = resolvedByIndex.get(i) ?? null;
-        if (resolved) {
-          discountAmount = Money.parse(resolved.discountAmount);
-          appliedPromotionId = resolved.promotionId;
-          appliedPromotionType = resolved.type;
+        const promo =
+          resolved.promotionsByOriginalIndex?.get(line.originalIndex) ??
+          resolved.promotionsByLineId.get(line.lineId) ??
+          null;
+
+        if (promo) {
+          discountAmount = Money.parse(promo.discountAmount);
+          appliedPromotionId = promo.promotionId;
+          appliedPromotionType = promo.type;
         }
 
         // Filter out product-scoped promotions; ad-hoc items only receive store promotions
-        const storePromotions = (resolved?.applied_promotions ?? []).filter(
+        const storePromotions = (promo?.applied_promotions ?? []).filter(
           (p) => p.promotion_scope === "store",
         );
         let storeDiscountTotal = Money.zero();
@@ -361,11 +216,11 @@ export class CreateSaleUseCase {
         const discountedSubtotal = Money.subtract(grossSubtotal, storeDiscountTotal);
 
         saleItems.push({
-          product_id: resItem.productId,
-          name: item.name ?? null,
-          description: item.description ?? null,
+          product_id: line.lineId,
+          name: line.adHoc.name ?? null,
+          description: line.adHoc.description ?? null,
           iva: AD_HOC_IVA_RATE,
-          quantity: resItem.quantity,
+          quantity: line.quantity,
           unit_price: Money.toString(unitPrice),
           subtotal: Money.toString(discountedSubtotal),
           discount_amount: storeDiscountAmount,
@@ -374,12 +229,10 @@ export class CreateSaleUseCase {
           applied_promotion_type: appliedPromotionType,
         });
         total = Money.add(total, discountedSubtotal);
-      } else if (isManual) {
-        // Manual product: subtotal = line_total, no discount, no promotions
-        const subtotal = Money.toString(unitPrice);
-        const manualProductIva = productsById.get(resItem.productId)?.iva ?? null;
+      } else if (line.kind === "catalog-manual") {
+        const subtotal = line.lineTotal;
         saleItems.push({
-          product_id: resItem.productId,
+          product_id: line.lineId,
           quantity: 1,
           unit_price: Money.toString(unitPrice),
           subtotal,
@@ -387,38 +240,38 @@ export class CreateSaleUseCase {
           applied_promotions: [],
           applied_promotion_id: null,
           applied_promotion_type: null,
-          ...(invoiceRequested && manualProductIva ? { iva: manualProductIva } : {}),
+          ...(line.ivaForPersistence ? { iva: line.ivaForPersistence } : {}),
         });
         total = Money.add(total, unitPrice);
       } else {
-        const grossSubtotal = Money.multiply(unitPrice, resItem.quantity);
+        const grossSubtotal = Money.multiply(unitPrice, line.quantity);
         let discountAmount = Money.zero();
         let appliedPromotionId: string | null = null;
         let appliedPromotionType: string | null = null;
 
-        const resolved = resolvedByIndex.get(i) ?? null;
-        if (resolved) {
-          discountAmount = Money.parse(resolved.discountAmount);
-          appliedPromotionId = resolved.promotionId;
-          appliedPromotionType = resolved.type;
+        const promo =
+          resolved.promotionsByOriginalIndex?.get(line.originalIndex) ??
+          resolved.promotionsByLineId.get(line.lineId) ??
+          null;
+
+        if (promo) {
+          discountAmount = Money.parse(promo.discountAmount);
+          appliedPromotionId = promo.promotionId;
+          appliedPromotionType = promo.type;
         }
 
         const discountedSubtotal = Money.subtract(grossSubtotal, discountAmount);
 
-        // Snapshot product IVA for invoice-requested catalog items so fiscal retry
-        // can reconstruct the same invoice basis from persisted sale data.
-        const productIva = productsById.get(resItem.productId)?.iva ?? null;
-
         saleItems.push({
-          product_id: resItem.productId,
-          quantity: resItem.quantity,
+          product_id: line.lineId,
+          quantity: line.quantity,
           unit_price: Money.toString(unitPrice),
           subtotal: Money.toString(discountedSubtotal),
           discount_amount: Money.toString(discountAmount),
-          applied_promotions: resolved?.applied_promotions ?? [],
+          applied_promotions: promo?.applied_promotions ?? [],
           applied_promotion_id: appliedPromotionId,
           applied_promotion_type: appliedPromotionType,
-          ...(invoiceRequested && productIva ? { iva: productIva } : {}),
+          ...(line.ivaForPersistence ? { iva: line.ivaForPersistence } : {}),
         });
 
         total = Money.add(total, discountedSubtotal);
@@ -444,15 +297,14 @@ export class CreateSaleUseCase {
     }
 
     if (invoiceRequested) {
-      const invoiceItems = saleItems.map((si) => {
-        // Ad-hoc items carry their own iva_rate; catalog items use the product's iva
+      const invoiceItems = saleItems.map((si, idx) => {
+        const line = resolved.lines[idx];
         if (si.iva) {
           return { line_total: si.subtotal, iva_rate: si.iva };
         }
-        const product = productsById.get(si.product_id!);
         return {
           line_total: si.subtotal,
-          iva_rate: product?.iva ?? "0",
+          iva_rate: (line.kind !== "ad-hoc" ? line.product.iva : null) ?? "0",
         };
       });
 
@@ -500,13 +352,10 @@ export class CreateSaleUseCase {
 
     // Deduct stock for managed catalog items (ad-hoc items are skipped)
     const managedDeductions = new Map<string, number>();
-    for (let i = 0; i < normalized.items.length; i++) {
-      const item = normalized.items[i];
-      if (item.kind === "ad-hoc") continue;
-      const product = productsById.get(item.productId);
-      if (!product || !product.maneja_stock) continue;
-      const current = managedDeductions.get(product.id) ?? 0;
-      managedDeductions.set(product.id, current + item.quantity);
+    for (const line of resolved.lines) {
+      if (line.kind === "ad-hoc" || !line.stockManaged) continue;
+      const current = managedDeductions.get(line.lineId) ?? 0;
+      managedDeductions.set(line.lineId, current + line.quantity);
     }
 
     // Deterministic lock order: sort product UUIDs before locking balances
