@@ -6,6 +6,7 @@ import {
   PromotionRepositoryPort,
   CreatePromotionInput,
   UpdatePromotionInput,
+  PromotionLookupScope,
 } from "../application/promotion.repository.port";
 import { Promotion } from "../domain/promotion.entity";
 
@@ -99,6 +100,39 @@ export class TypeOrmPromotionRepository extends PromotionRepositoryPort {
 
   async delete(id: string): Promise<void> {
     await this.promotionRepo.delete(id);
+  }
+
+  async findActiveForProducts(
+    productIds: string[],
+    scope: PromotionLookupScope,
+    atDate: Date,
+  ): Promise<Promotion[]> {
+    if (scope !== "store" && productIds.length === 0) return [];
+
+    const where = this.buildScopeWhere(productIds, scope);
+    const entities = await this.promotionRepo.find({ where });
+
+    return entities
+      .filter((entity) => entity.enabled)
+      .filter((entity) => this.isScheduleActive(entity, atDate))
+      .map((entity) => this.toDomain(entity));
+  }
+
+  private buildScopeWhere(
+    productIds: string[],
+    scope: PromotionLookupScope,
+  ) {
+    if (scope === "store") {
+      return { scope: "store" };
+    }
+    if (scope === "product") {
+      return { scope: "product", product_id: In(productIds) };
+    }
+    // scope === "all"
+    return [
+      { scope: "store" },
+      { scope: "product", product_id: In(productIds) },
+    ];
   }
 
   private isScheduleActive(

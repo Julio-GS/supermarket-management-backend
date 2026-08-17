@@ -16,6 +16,7 @@ import { GetProductUseCase } from "./application/get-product.use-case";
 import { UpdateProductUseCase } from "./application/update-product.use-case";
 import { DeleteProductUseCase } from "./application/delete-product.use-case";
 import { GetProductByCodeUseCase } from "./application/get-product-by-code.use-case";
+import { ProductReadModelService } from "./application/product-read-model.service";
 import { ReadCacheModule } from "../../shared/cache/read-cache.module";
 import { DatabaseModule } from "../../shared/database/database.module";
 import { InventoryModule } from "../inventory/inventory.module";
@@ -43,6 +44,7 @@ import { LabelPrinterModule } from "../label-printer/label-printer.module";
     DeleteProductUseCase,
     GetProductByCodeUseCase,
     ProductCreatePayloadCanonicalizer,
+    ProductReadModelService,
     {
       provide: ProductCreateIdempotencyRepositoryPort,
       useClass: TypeOrmProductCreateIdempotencyRepository,

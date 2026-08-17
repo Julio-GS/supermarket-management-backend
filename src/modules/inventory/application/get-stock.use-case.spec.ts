@@ -25,6 +25,7 @@ describe("GetStockUseCase", () => {
       createBalance: jest.fn(),
       adjustBalance: jest.fn(),
       findMovementsByProduct: jest.fn(),
+          getStockForProducts: jest.fn(),
     };
     productLookup = {
       findById: jest.fn(),

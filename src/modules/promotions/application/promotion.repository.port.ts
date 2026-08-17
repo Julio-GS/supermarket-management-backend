@@ -4,6 +4,8 @@ import {
   PromotionType,
 } from "../domain/promotion.entity";
 
+export type PromotionLookupScope = PromotionScope | "all";
+
 export interface CreatePromotionInput {
   name: string;
   description?: string | null;
@@ -42,4 +44,9 @@ export abstract class PromotionRepositoryPort {
     now?: Date,
   ): Promise<Promotion[]>;
   abstract delete(id: string): Promise<void>;
+  abstract findActiveForProducts(
+    productIds: string[],
+    scope: PromotionLookupScope,
+    atDate: Date,
+  ): Promise<Promotion[]>;
 }

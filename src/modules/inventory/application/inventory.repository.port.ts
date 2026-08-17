@@ -24,4 +24,5 @@ export abstract class InventoryRepositoryPort {
     reason?: string | null,
   ): Promise<StockMovement>;
   abstract findMovementsByProduct(productId: string): Promise<StockMovement[]>;
+  abstract getStockForProducts(productIds: string[]): Promise<Map<string, number>>;
 }

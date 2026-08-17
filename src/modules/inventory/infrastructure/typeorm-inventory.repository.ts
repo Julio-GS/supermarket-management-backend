@@ -109,6 +109,18 @@ export class TypeOrmInventoryRepository extends InventoryRepositoryPort {
     return entities.map((e) => this.toMovementDomain(e));
   }
 
+  async getStockForProducts(productIds: string[]): Promise<Map<string, number>> {
+    if (productIds.length === 0) return new Map();
+    const entities = await this.balanceRepo.find({
+      where: { product_id: In(productIds) },
+    });
+    const map = new Map<string, number>();
+    for (const entity of entities) {
+      map.set(entity.product_id, entity.stock_actual);
+    }
+    return map;
+  }
+
   private toBalanceDomain(entity: InventoryBalanceEntity): InventoryBalance {
     const balance = new InventoryBalance();
     balance.product_id = entity.product_id;

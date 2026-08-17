@@ -26,6 +26,13 @@ describe("PromotionRepositoryPort", () => {
       delete(_id: string) {
         return Promise.resolve();
       }
+      findActiveForProducts(
+        _productIds: string[],
+        _scope: string,
+        _atDate: Date,
+      ) {
+        return Promise.resolve([]);
+      }
     })();
 
     expect(port).toBeInstanceOf(PromotionRepositoryPort);
@@ -35,6 +42,7 @@ describe("PromotionRepositoryPort", () => {
     expect(typeof port.findAll).toBe("function");
     expect(typeof port.findActiveByProductIds).toBe("function");
     expect(typeof port.delete).toBe("function");
+    expect(typeof port.findActiveForProducts).toBe("function");
   });
 
   it("accepts CreatePromotionInput with percentage type", () => {
