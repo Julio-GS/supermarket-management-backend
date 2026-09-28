@@ -10,6 +10,7 @@ import {
   NotFoundError,
   ValidationError,
 } from "../../../shared/errors/domain.error";
+import { validateIvaRate } from "../../../shared/fiscal/iva-rate";
 
 export interface RetryArcaInvoiceInput {
   sale_id: string;
@@ -160,13 +161,22 @@ export class RetryArcaInvoiceUseCase {
     // ------------------------------------------------------------------
     // Phase 2: Call ARCA (no DB lock held during external I/O)
     // ------------------------------------------------------------------
-    const invoiceItems = (claimed.items ?? []).map((item) => ({
-      line_total: item.subtotal,
-      iva_rate: item.iva ?? "0",
-    }));
-
     let invoiceResult: ArcaInvoiceResult;
     try {
+      if (!claimed.items || claimed.items.length === 0) {
+        throw new ValidationError(
+          `Sale ${input.sale_id} has no items to invoice`,
+        );
+      }
+
+      const invoiceItems = claimed.items.map((item) => {
+        const validatedIva = validateIvaRate(item.iva);
+        return {
+          line_total: item.subtotal,
+          iva_rate: validatedIva,
+        };
+      });
+
       invoiceResult = await this.issueInvoice.issue(invoiceItems);
     } catch (error) {
       // Clear ARCA failure — rollback issuing → failed

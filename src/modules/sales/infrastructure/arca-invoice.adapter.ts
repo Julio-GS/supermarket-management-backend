@@ -40,6 +40,8 @@ function stringifySafe(value: unknown): string {
   }
 }
 
+const ALLOWED_IVA_BUCKET_IDS: ReadonlySet<number> = new Set([4, 5]);
+
 @Injectable()
 export class ArcaInvoiceAdapter extends ArcaInvoicePort {
   private readonly logger = new Logger(ArcaInvoiceAdapter.name);
@@ -69,6 +71,14 @@ export class ArcaInvoiceAdapter extends ArcaInvoicePort {
   ): Promise<ArcaInvoiceResult> {
     if (!this.config.enabled) {
       throw new Error("ARCA invoicing is not enabled");
+    }
+
+    for (const bucket of input.iva_buckets) {
+      if (!ALLOWED_IVA_BUCKET_IDS.has(bucket.id)) {
+        throw new Error(
+          `Unsupported IVA bucket ID: ${bucket.id}. Only IDs 4 (10.5%) and 5 (21%) are supported.`,
+        );
+      }
     }
 
     if (this.config.mock) {

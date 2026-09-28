@@ -77,6 +77,73 @@ describe("IssueArcaInvoiceUseCase", () => {
     expect(arcaInvoice.createFacturaBConsumidorFinal).not.toHaveBeenCalled();
   });
 
+  it("rejects IVA 0 and 0.00 without calling ARCA adapter", async () => {
+    await expect(
+      useCase.issue([{ line_total: "100.00", iva_rate: "0" }]),
+    ).rejects.toBeInstanceOf(ValidationError);
+    expect(arcaInvoice.createFacturaBConsumidorFinal).not.toHaveBeenCalled();
+
+    await expect(
+      useCase.issue([{ line_total: "100.00", iva_rate: "0.00" }]),
+    ).rejects.toBeInstanceOf(ValidationError);
+    expect(arcaInvoice.createFacturaBConsumidorFinal).not.toHaveBeenCalled();
+  });
+
+  it("rejects missing, null, undefined, or empty IVA without calling ARCA adapter", async () => {
+    await expect(
+      useCase.issue([{ line_total: "100.00", iva_rate: "" }]),
+    ).rejects.toBeInstanceOf(ValidationError);
+    expect(arcaInvoice.createFacturaBConsumidorFinal).not.toHaveBeenCalled();
+
+    await expect(
+      useCase.issue([{ line_total: "100.00", iva_rate: null as unknown as string }]),
+    ).rejects.toBeInstanceOf(ValidationError);
+    expect(arcaInvoice.createFacturaBConsumidorFinal).not.toHaveBeenCalled();
+
+    await expect(
+      useCase.issue([{ line_total: "100.00", iva_rate: undefined as unknown as string }]),
+    ).rejects.toBeInstanceOf(ValidationError);
+    expect(arcaInvoice.createFacturaBConsumidorFinal).not.toHaveBeenCalled();
+  });
+
+  it("rejects other unsupported rates (27, 5, 2.5) without calling ARCA adapter", async () => {
+    await expect(
+      useCase.issue([{ line_total: "100.00", iva_rate: "27.00" }]),
+    ).rejects.toBeInstanceOf(ValidationError);
+    await expect(
+      useCase.issue([{ line_total: "100.00", iva_rate: "5.00" }]),
+    ).rejects.toBeInstanceOf(ValidationError);
+    await expect(
+      useCase.issue([{ line_total: "100.00", iva_rate: "2.50" }]),
+    ).rejects.toBeInstanceOf(ValidationError);
+    expect(arcaInvoice.createFacturaBConsumidorFinal).not.toHaveBeenCalled();
+  });
+
+  it("accepts valid unpadded '10.5' and '21' rates", async () => {
+    arcaInvoice.createFacturaBConsumidorFinal.mockResolvedValue({
+      cae: "12345678901234",
+      cae_vto: "20240111",
+      cbte_nro: 7,
+      cbte_tipo: 6,
+      pto_vta: 1,
+    });
+
+    await useCase.issue([
+      { line_total: "110.50", iva_rate: "10.5" },
+      { line_total: "121.00", iva_rate: "21" },
+    ]);
+
+    expect(arcaInvoice.createFacturaBConsumidorFinal).toHaveBeenCalledWith({
+      total: "231.50",
+      imp_neto: "200.00",
+      imp_iva: "31.50",
+      iva_buckets: expect.arrayContaining([
+        { id: 4, base_imp: "100.00", importe: "10.50" },
+        { id: 5, base_imp: "100.00", importe: "21.00" },
+      ]),
+    });
+  });
+
   it("rejects empty item lists", async () => {
     await expect(useCase.issue([])).rejects.toBeInstanceOf(ValidationError);
   });

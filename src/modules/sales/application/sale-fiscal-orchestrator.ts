@@ -47,13 +47,11 @@ export class SaleFiscalOrchestrator {
 
     const invoiceItems = saleItems.map((si, idx) => {
       const line = resolvedLines[idx];
-      let ivaRate: string;
+      let ivaRate = "";
       if (si.iva) {
         ivaRate = si.iva;
       } else if (line && line.kind !== "ad-hoc" && line.product.iva) {
         ivaRate = line.product.iva;
-      } else {
-        ivaRate = "21.00";
       }
 
       return {

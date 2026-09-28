@@ -256,6 +256,177 @@ describe("RetryArcaInvoiceUseCase", () => {
     });
   });
 
+  describe("IVA validation and fail-closed defense on retry", () => {
+    it("fails closed without calling ARCA when item IVA is null/missing, rolling back issuing→failed and alerting", async () => {
+      const failedSale = buildSale({
+        invoice_status: "failed",
+        items: [
+          {
+            id: "item-null-iva",
+            sale_id: "sale-id",
+            product_id: "prod-1",
+            iva: null,
+            quantity: 1,
+            unit_price: "100.00",
+            subtotal: "100.00",
+            discount_amount: "0.00",
+            applied_promotions: [],
+          },
+        ],
+      });
+      const issuingSale = buildSale({ ...failedSale, invoice_status: "issuing" });
+      const returnedToFailed = buildSale({ ...failedSale, invoice_status: "failed" });
+
+      sales.findByIdForUser
+        .mockResolvedValueOnce(failedSale)
+        .mockResolvedValueOnce(returnedToFailed);
+
+      dataSource.transaction.mockImplementation(
+        async (fn: (em: EntityManager) => Promise<any>) =>
+          fn(manager as unknown as EntityManager),
+      );
+      sales.transitionInvoiceStatus
+        .mockResolvedValueOnce(issuingSale) // failed→issuing
+        .mockResolvedValueOnce(returnedToFailed); // issuing→failed rollback
+
+      const result = await useCase.execute({
+        sale_id: "sale-id",
+        user_id: "user-id",
+      });
+
+      expect(issueInvoice.issue).not.toHaveBeenCalled();
+      expect(result.retry_status).toBe("failed");
+      expect(result.sale.invoice_status).toBe("failed");
+      expect(alertPort.alertRetryFailed).toHaveBeenCalledWith(
+        "sale-id",
+        expect.any(ValidationError),
+      );
+    });
+
+    it("fails closed without calling ARCA when item IVA is zero ('0' or '0.00')", async () => {
+      const failedSale = buildSale({
+        invoice_status: "failed",
+        items: [
+          {
+            id: "item-zero-iva",
+            sale_id: "sale-id",
+            product_id: "prod-1",
+            iva: "0.00",
+            quantity: 1,
+            unit_price: "100.00",
+            subtotal: "100.00",
+            discount_amount: "0.00",
+            applied_promotions: [],
+          },
+        ],
+      });
+      const issuingSale = buildSale({ ...failedSale, invoice_status: "issuing" });
+      const returnedToFailed = buildSale({ ...failedSale, invoice_status: "failed" });
+
+      sales.findByIdForUser
+        .mockResolvedValueOnce(failedSale)
+        .mockResolvedValueOnce(returnedToFailed);
+
+      dataSource.transaction.mockImplementation(
+        async (fn: (em: EntityManager) => Promise<any>) =>
+          fn(manager as unknown as EntityManager),
+      );
+      sales.transitionInvoiceStatus
+        .mockResolvedValueOnce(issuingSale)
+        .mockResolvedValueOnce(returnedToFailed);
+
+      const result = await useCase.execute({
+        sale_id: "sale-id",
+        user_id: "user-id",
+      });
+
+      expect(issueInvoice.issue).not.toHaveBeenCalled();
+      expect(result.retry_status).toBe("failed");
+      expect(alertPort.alertRetryFailed).toHaveBeenCalledWith(
+        "sale-id",
+        expect.any(ValidationError),
+      );
+    });
+
+    it("fails closed without calling ARCA when item IVA is an unsupported rate ('27.00')", async () => {
+      const failedSale = buildSale({
+        invoice_status: "failed",
+        items: [
+          {
+            id: "item-27-iva",
+            sale_id: "sale-id",
+            product_id: "prod-1",
+            iva: "27.00",
+            quantity: 1,
+            unit_price: "100.00",
+            subtotal: "100.00",
+            discount_amount: "0.00",
+            applied_promotions: [],
+          },
+        ],
+      });
+      const issuingSale = buildSale({ ...failedSale, invoice_status: "issuing" });
+      const returnedToFailed = buildSale({ ...failedSale, invoice_status: "failed" });
+
+      sales.findByIdForUser
+        .mockResolvedValueOnce(failedSale)
+        .mockResolvedValueOnce(returnedToFailed);
+
+      dataSource.transaction.mockImplementation(
+        async (fn: (em: EntityManager) => Promise<any>) =>
+          fn(manager as unknown as EntityManager),
+      );
+      sales.transitionInvoiceStatus
+        .mockResolvedValueOnce(issuingSale)
+        .mockResolvedValueOnce(returnedToFailed);
+
+      const result = await useCase.execute({
+        sale_id: "sale-id",
+        user_id: "user-id",
+      });
+
+      expect(issueInvoice.issue).not.toHaveBeenCalled();
+      expect(result.retry_status).toBe("failed");
+      expect(alertPort.alertRetryFailed).toHaveBeenCalledWith(
+        "sale-id",
+        expect.any(ValidationError),
+      );
+    });
+
+    it("fails closed without calling ARCA when sale has empty items list", async () => {
+      const failedSale = buildSale({
+        invoice_status: "failed",
+        items: [],
+      });
+      const issuingSale = buildSale({ ...failedSale, invoice_status: "issuing" });
+      const returnedToFailed = buildSale({ ...failedSale, invoice_status: "failed" });
+
+      sales.findByIdForUser
+        .mockResolvedValueOnce(failedSale)
+        .mockResolvedValueOnce(returnedToFailed);
+
+      dataSource.transaction.mockImplementation(
+        async (fn: (em: EntityManager) => Promise<any>) =>
+          fn(manager as unknown as EntityManager),
+      );
+      sales.transitionInvoiceStatus
+        .mockResolvedValueOnce(issuingSale)
+        .mockResolvedValueOnce(returnedToFailed);
+
+      const result = await useCase.execute({
+        sale_id: "sale-id",
+        user_id: "user-id",
+      });
+
+      expect(issueInvoice.issue).not.toHaveBeenCalled();
+      expect(result.retry_status).toBe("failed");
+      expect(alertPort.alertRetryFailed).toHaveBeenCalledWith(
+        "sale-id",
+        expect.any(ValidationError),
+      );
+    });
+  });
+
   describe("issuing and ambiguous states block retry", () => {
     it("returns reconciliation_required when sale is in 'issuing' state", async () => {
       const issuingSale = buildSale({ invoice_status: "issuing" });

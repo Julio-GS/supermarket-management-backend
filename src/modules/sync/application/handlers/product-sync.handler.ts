@@ -5,6 +5,8 @@ import { SyncTombstoneEntity } from '../../infrastructure/sync-tombstone.entity'
 import { ProductRepositoryPort } from '../../../products/application/product.repository.port';
 import { TransactionRunnerPort } from '../../../../shared/database/transaction-runner.port';
 import { AutoLabelJobService } from '../../../label-printer/application/auto-label-job.service';
+import { ValidationError } from '../../../../shared/errors/domain.error';
+import { validateProductIvaInvariants } from '../../../../shared/fiscal/iva-rate';
 import type { ProductUpdateInput } from '../../../products/application/product.repository.port';
 import type { Product } from '../../../products/domain/product.entity';
 import type {
@@ -65,16 +67,21 @@ export class ProductSyncHandler
     entry: ProductCreateEntry,
   ): Promise<SyncHandlerResult> {
     const payload = entry.payload;
+    const facturable = payload.facturable ?? true;
+    const normalizedIva = validateProductIvaInvariants({
+      facturable,
+      iva: payload.iva,
+    });
 
     const product = await this.productRepo.create({
       detalle: payload.detalle ?? '',
       costo_neto: payload.costo_neto ?? null,
       costo_final: payload.costo_final ?? null,
-      iva: payload.iva ?? null,
+      iva: normalizedIva,
       cambio_costo: payload.cambio_costo ?? 'fixed',
       cambio_precio: payload.cambio_precio ?? 'fixed',
       etiqueta: payload.etiqueta ?? '',
-      facturable: payload.facturable ?? true,
+      facturable,
       maneja_stock: payload.maneja_stock ?? true,
       codigos: payload.codigos ?? [],
     });
@@ -90,23 +97,22 @@ export class ProductSyncHandler
   ): Promise<SyncHandlerResult> {
     const payload = entry.payload;
 
+    const current = await this.productRepo.findById(entry.aggregate_id);
+
     // Server-authoritative conflict detection: when the client provides a
     // base_server_version, compare it against the current entity version.
     // If another client updated the entity, reject with conflict.
-    if (entry.base_server_version) {
-      const current = await this.productRepo.findById(entry.aggregate_id);
-      if (current) {
-        const currentVersion =
-          current.updated_at instanceof Date
-            ? current.updated_at.toISOString()
-            : String(current.updated_at);
-        if (currentVersion !== entry.base_server_version) {
-          return {
-            status: 'conflict',
-            server_version: currentVersion,
-            reason: `Server version ${currentVersion} differs from base version ${entry.base_server_version}. Another client has already updated this product.`,
-          };
-        }
+    if (entry.base_server_version && current) {
+      const currentVersion =
+        current.updated_at instanceof Date
+          ? current.updated_at.toISOString()
+          : String(current.updated_at);
+      if (currentVersion !== entry.base_server_version) {
+        return {
+          status: 'conflict',
+          server_version: currentVersion,
+          reason: `Server version ${currentVersion} differs from base version ${entry.base_server_version}. Another client has already updated this product.`,
+        };
       }
     }
 
@@ -114,7 +120,6 @@ export class ProductSyncHandler
     if (payload.detalle !== undefined) updateInput.detalle = payload.detalle;
     if (payload.costo_neto !== undefined) updateInput.costo_neto = payload.costo_neto;
     if (payload.costo_final !== undefined) updateInput.costo_final = payload.costo_final;
-    if (payload.iva !== undefined) updateInput.iva = payload.iva;
     if (payload.cambio_costo !== undefined)
       updateInput.cambio_costo = payload.cambio_costo ?? undefined;
     if (payload.cambio_precio !== undefined)
@@ -125,10 +130,34 @@ export class ProductSyncHandler
     if (payload.maneja_stock !== undefined) updateInput.maneja_stock = payload.maneja_stock;
     if (payload.codigos !== undefined) updateInput.codigos = payload.codigos;
 
-    // Fetch current product when price may change (needed for comparison and snapshot)
-    let current: Product | null = null;
-    if (payload.costo_final !== undefined) {
-      current = await this.productRepo.findById(entry.aggregate_id);
+    // Validate IVA invariants on sync update against resulting persisted state
+    if (current) {
+      const resultingFacturable =
+        payload.facturable !== undefined
+          ? payload.facturable
+          : current.facturable;
+      const resultingIva =
+        payload.iva !== undefined ? payload.iva : current.iva;
+
+      const normalizedIva = validateProductIvaInvariants({
+        facturable: resultingFacturable,
+        iva: resultingIva,
+      });
+
+      if (payload.iva !== undefined) {
+        updateInput.iva = normalizedIva;
+      }
+    } else {
+      if (payload.facturable !== undefined || payload.iva !== undefined) {
+        const facturable = payload.facturable ?? true;
+        const normalizedIva = validateProductIvaInvariants({
+          facturable,
+          iva: payload.iva,
+        });
+        if (payload.iva !== undefined) {
+          updateInput.iva = normalizedIva;
+        }
+      }
     }
 
     const priceChanged =
