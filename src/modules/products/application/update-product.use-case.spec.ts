@@ -206,4 +206,254 @@ describe("UpdateProductUseCase — maneja_stock preservation", () => {
       expect(inventory.createBalance).not.toHaveBeenCalled();
     });
   });
+
+  describe("IVA rate validation and facturabilidad invariants on update", () => {
+    it("normalizes accepted 10.5 IVA to 10.50 on update", async () => {
+      const product = buildProduct({ facturable: true, iva: "21.00" });
+      products.findById.mockResolvedValue(product);
+      products.update.mockResolvedValue(buildProduct({ iva: "10.50" }));
+
+      await useCase.execute(product.id, { iva: "10.5" });
+
+      expect(products.update).toHaveBeenCalledWith(
+        product.id,
+        expect.objectContaining({ iva: "10.50" }),
+        expect.anything(),
+      );
+    });
+
+    it("accepts valid 21.00 IVA on update", async () => {
+      const product = buildProduct({ facturable: true, iva: "10.50" });
+      products.findById.mockResolvedValue(product);
+      products.update.mockResolvedValue(buildProduct({ iva: "21.00" }));
+
+      await useCase.execute(product.id, { iva: "21.00" });
+
+      expect(products.update).toHaveBeenCalledWith(
+        product.id,
+        expect.objectContaining({ iva: "21.00" }),
+        expect.anything(),
+      );
+    });
+
+    it("normalizes numeric-equivalent 10.500 IVA to 10.50 on update", async () => {
+      const product = buildProduct({ facturable: true, iva: "21.00" });
+      products.findById.mockResolvedValue(product);
+      products.update.mockResolvedValue(buildProduct({ iva: "10.50" }));
+
+      await useCase.execute(product.id, { iva: "10.500" });
+
+      expect(products.update).toHaveBeenCalledWith(
+        product.id,
+        expect.objectContaining({ iva: "10.50" }),
+        expect.anything(),
+      );
+    });
+
+    it("normalizes numeric-equivalent 21.000 IVA to 21.00 on update", async () => {
+      const product = buildProduct({ facturable: true, iva: "10.50" });
+      products.findById.mockResolvedValue(product);
+      products.update.mockResolvedValue(buildProduct({ iva: "21.00" }));
+
+      await useCase.execute(product.id, { iva: "21.000" });
+
+      expect(products.update).toHaveBeenCalledWith(
+        product.id,
+        expect.objectContaining({ iva: "21.00" }),
+        expect.anything(),
+      );
+    });
+
+    it("rejects 0 and 0.00 IVA on update of facturable product", async () => {
+      const product = buildProduct({ facturable: true, iva: "21.00" });
+      products.findById.mockResolvedValue(product);
+
+      await expect(
+        useCase.execute(product.id, { iva: "0" }),
+      ).rejects.toBeInstanceOf(ValidationError);
+
+      await expect(
+        useCase.execute(product.id, { iva: "0.00" }),
+      ).rejects.toBeInstanceOf(ValidationError);
+
+      expect(products.update).not.toHaveBeenCalled();
+    });
+
+    it("rejects setting null IVA on facturable product", async () => {
+      const product = buildProduct({ facturable: true, iva: "21.00" });
+      products.findById.mockResolvedValue(product);
+
+      await expect(
+        useCase.execute(product.id, { iva: null }),
+      ).rejects.toBeInstanceOf(ValidationError);
+
+      expect(products.update).not.toHaveBeenCalled();
+    });
+
+    it("rejects unsupported IVA (e.g., 27.00) on update", async () => {
+      const product = buildProduct({ facturable: true, iva: "21.00" });
+      products.findById.mockResolvedValue(product);
+
+      await expect(
+        useCase.execute(product.id, { iva: "27.00" }),
+      ).rejects.toBeInstanceOf(ValidationError);
+
+      expect(products.update).not.toHaveBeenCalled();
+    });
+
+    it("rejects making a product facturable when resulting IVA is null", async () => {
+      const product = buildProduct({ facturable: false, iva: null });
+      products.findById.mockResolvedValue(product);
+
+      await expect(
+        useCase.execute(product.id, { facturable: true }),
+      ).rejects.toBeInstanceOf(ValidationError);
+
+      expect(products.update).not.toHaveBeenCalled();
+    });
+
+    it("allows making a product facturable when valid IVA is provided in the same update", async () => {
+      const product = buildProduct({ facturable: false, iva: null });
+      products.findById.mockResolvedValue(product);
+      products.update.mockResolvedValue(
+        buildProduct({ facturable: true, iva: "21.00" }),
+      );
+
+      await useCase.execute(product.id, { facturable: true, iva: "21.00" });
+
+      expect(products.update).toHaveBeenCalledWith(
+        product.id,
+        expect.objectContaining({ facturable: true, iva: "21.00" }),
+        expect.anything(),
+      );
+    });
+
+    it("allows making a product non-facturable with null IVA", async () => {
+      const product = buildProduct({ facturable: true, iva: "21.00" });
+      products.findById.mockResolvedValue(product);
+      products.update.mockResolvedValue(
+        buildProduct({ facturable: false, iva: null }),
+      );
+
+      await useCase.execute(product.id, { facturable: false, iva: null });
+
+      expect(products.update).toHaveBeenCalledWith(
+        product.id,
+        expect.objectContaining({ facturable: false, iva: null }),
+        expect.anything(),
+      );
+    });
+
+    it("rejects 0 IVA when provided on non-facturable product", async () => {
+      const product = buildProduct({ facturable: false, iva: null });
+      products.findById.mockResolvedValue(product);
+
+      await expect(
+        useCase.execute(product.id, { iva: "0" }),
+      ).rejects.toBeInstanceOf(ValidationError);
+
+      expect(products.update).not.toHaveBeenCalled();
+    });
+
+    it("allows updating unrelated fields on facturable product with valid existing IVA", async () => {
+      const product = buildProduct({ facturable: true, iva: "21.00" });
+      products.findById.mockResolvedValue(product);
+      products.update.mockResolvedValue(
+        buildProduct({ detalle: "Updated Name" }),
+      );
+
+      const result = await useCase.execute(product.id, { detalle: "Updated Name" });
+
+      expect(result.detalle).toBe("Updated Name");
+      expect(products.update).toHaveBeenCalledWith(
+        product.id,
+        expect.objectContaining({ detalle: "Updated Name" }),
+        expect.anything(),
+      );
+    });
+
+    describe("Bypass 1 regression — validating full resulting persisted state on normal update", () => {
+      it("rejects unrelated patch when existing facturable product has invalid 0.00 IVA", async () => {
+        const product = buildProduct({ facturable: true, iva: "0.00" });
+        products.findById.mockResolvedValue(product);
+
+        await expect(
+          useCase.execute(product.id, { detalle: "Updated Name Only" }),
+        ).rejects.toBeInstanceOf(ValidationError);
+
+        expect(products.update).not.toHaveBeenCalled();
+      });
+
+      it("rejects unrelated patch when existing non-facturable product has invalid 0.00 IVA", async () => {
+        const product = buildProduct({ facturable: false, iva: "0.00" });
+        products.findById.mockResolvedValue(product);
+
+        await expect(
+          useCase.execute(product.id, { detalle: "Updated Name Only" }),
+        ).rejects.toBeInstanceOf(ValidationError);
+
+        expect(products.update).not.toHaveBeenCalled();
+      });
+
+      it("rejects unrelated patch when existing facturable product has null IVA", async () => {
+        const product = buildProduct({ facturable: true, iva: null });
+        products.findById.mockResolvedValue(product);
+
+        await expect(
+          useCase.execute(product.id, { detalle: "Updated Name Only" }),
+        ).rejects.toBeInstanceOf(ValidationError);
+
+        expect(products.update).not.toHaveBeenCalled();
+      });
+
+      it("allows unrelated patch when existing non-facturable product has valid null IVA", async () => {
+        const product = buildProduct({ facturable: false, iva: null });
+        products.findById.mockResolvedValue(product);
+        products.update.mockResolvedValue(
+          buildProduct({ facturable: false, iva: null, detalle: "Updated Name" }),
+        );
+
+        const result = await useCase.execute(product.id, { detalle: "Updated Name" });
+
+        expect(result.detalle).toBe("Updated Name");
+        expect(products.update).toHaveBeenCalledWith(
+          product.id,
+          expect.objectContaining({ detalle: "Updated Name" }),
+          expect.anything(),
+        );
+      });
+
+      it("allows fixing invalid existing IVA when explicit valid IVA is supplied in the update", async () => {
+        const product = buildProduct({ facturable: true, iva: "0.00" });
+        products.findById.mockResolvedValue(product);
+        products.update.mockResolvedValue(
+          buildProduct({ facturable: true, iva: "21.00", detalle: "Updated Name" }),
+        );
+
+        await useCase.execute(product.id, { detalle: "Updated Name", iva: "21.00" });
+
+        expect(products.update).toHaveBeenCalledWith(
+          product.id,
+          expect.objectContaining({ detalle: "Updated Name", iva: "21.00" }),
+          expect.anything(),
+        );
+      });
+
+      it("allows fixing invalid existing IVA on non-facturable product by setting iva to null", async () => {
+        const product = buildProduct({ facturable: false, iva: "0.00" });
+        products.findById.mockResolvedValue(product);
+        products.update.mockResolvedValue(
+          buildProduct({ facturable: false, iva: null, detalle: "Updated Name" }),
+        );
+
+        await useCase.execute(product.id, { detalle: "Updated Name", iva: null });
+
+        expect(products.update).toHaveBeenCalledWith(
+          product.id,
+          expect.objectContaining({ detalle: "Updated Name", iva: null }),
+          expect.anything(),
+        );
+      });
+    });
+  });
 });

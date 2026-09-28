@@ -10,6 +10,7 @@ import {
   ValidationArguments,
 } from "class-validator";
 import { validateMoneyString } from "../../../shared/money/money.helper";
+import { isAllowedIvaRate } from "../../../shared/fiscal/iva-rate";
 import { PaginationQueryDto } from "../../../shared/read-model/pagination.dto";
 
 @ValidatorConstraint({ name: "moneyString", async: false })
@@ -20,6 +21,20 @@ class MoneyStringConstraint implements ValidatorConstraintInterface {
 
   defaultMessage(args: ValidationArguments): string {
     return `${args.property} must be a valid money string like "2500.50"`;
+  }
+}
+
+@ValidatorConstraint({ name: "ivaRate", async: false })
+export class IvaRateConstraint implements ValidatorConstraintInterface {
+  validate(value: unknown): boolean {
+    if (value === null || value === undefined) {
+      return true;
+    }
+    return isAllowedIvaRate(value);
+  }
+
+  defaultMessage(args: ValidationArguments): string {
+    return `${args.property} must be an allowed IVA rate: 10.50 or 21.00`;
   }
 }
 
@@ -37,7 +52,7 @@ export class CreateProductDto {
   costo_final?: string | null;
 
   @IsOptional()
-  @Validate(MoneyStringConstraint)
+  @Validate(IvaRateConstraint)
   iva?: string | null;
 
   @IsString()
@@ -75,7 +90,7 @@ export class UpdateProductDto {
   costo_final?: string;
 
   @IsOptional()
-  @Validate(MoneyStringConstraint)
+  @Validate(IvaRateConstraint)
   iva?: string;
 
   @IsOptional()

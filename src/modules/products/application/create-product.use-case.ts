@@ -5,6 +5,7 @@ import {
 } from "./product.repository.port";
 import { Product } from "../domain/product.entity";
 import { ConflictError, ValidationError } from "../../../shared/errors/domain.error";
+import { validateProductIvaInvariants } from "../../../shared/fiscal/iva-rate";
 import { ReadCachePort } from "../../../shared/cache/read-cache.port";
 import { PRODUCT_READ_CACHE_POLICY } from "../../../shared/cache/cache-policy";
 import { containsReservedCode } from "../domain/special-product-codes";
@@ -55,13 +56,24 @@ export class CreateProductUseCase {
       );
     }
 
+    // Validate and normalize product IVA invariants
+    const facturable = Boolean(input.facturable);
+    const normalizedIva = validateProductIvaInvariants({
+      facturable,
+      iva: input.iva,
+    });
+    const normalizedInput: ProductCreateInput = {
+      ...input,
+      iva: normalizedIva,
+    };
+
     // Canonicalize input
-    const { version, hash } = this.canonicalizer.canonicalize(input);
+    const { version, hash } = this.canonicalizer.canonicalize(normalizedInput);
 
     let result: Record<string, unknown>;
     try {
       result = await this.transactionRunner.run(async (runner) => {
-        return this.createInTransaction(runner, input, key, version, hash);
+        return this.createInTransaction(runner, normalizedInput, key, version, hash);
       });
     } catch (err: unknown) {
       if (isUniqueViolation(err)) {

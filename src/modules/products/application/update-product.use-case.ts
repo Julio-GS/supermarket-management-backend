@@ -9,6 +9,7 @@ import {
   ConflictError,
   ValidationError,
 } from "../../../shared/errors/domain.error";
+import { validateProductIvaInvariants } from "../../../shared/fiscal/iva-rate";
 import { ReadCachePort } from "../../../shared/cache/read-cache.port";
 import { PRODUCT_READ_CACHE_POLICY } from "../../../shared/cache/cache-policy";
 import { containsReservedCode } from "../domain/special-product-codes";
@@ -55,12 +56,28 @@ export class UpdateProductUseCase {
       }
     }
 
+    // Validate resulting facturabilidad and IVA state invariants
+    const resultingFacturable =
+      input.facturable !== undefined ? input.facturable : existing.facturable;
+    const resultingIva =
+      input.iva !== undefined ? input.iva : existing.iva;
+
+    const normalizedIva = validateProductIvaInvariants({
+      facturable: resultingFacturable,
+      iva: resultingIva,
+    });
+
+    const normalizedInput: ProductUpdateInput = { ...input };
+    if (input.iva !== undefined) {
+      normalizedInput.iva = normalizedIva;
+    }
+
     const newCostoFinal =
       input.costo_final !== undefined ? input.costo_final : existing.costo_final;
     const priceChanged = newCostoFinal !== existing.costo_final;
 
     const updated = await this.transactionRunner.run(async (runner) => {
-      const product = await this.products.update(id, input, runner);
+      const product = await this.products.update(id, normalizedInput, runner);
       if (!product) throw new NotFoundError("Product not found");
       if (!existing.maneja_stock && product.maneja_stock) {
         await this.inventory.createBalance(id, 0, runner);

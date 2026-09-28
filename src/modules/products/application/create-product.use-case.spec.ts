@@ -628,4 +628,140 @@ describe("CreateProductUseCase (idempotent)", () => {
         expect(products.existsAnyBarcode.mock.calls[0][2]).toBe(r);
     });
 
+    // ── IVA rate validation ───────────────────────────────────────────
+
+    describe("IVA rate validation on creation", () => {
+      it("creates facturable product with normalized 10.50 when given 10.5", async () => {
+        products.existsAnyBarcode.mockResolvedValue(false);
+        idempotencyRepo.findByKey.mockResolvedValue(null);
+
+        const product = buildProduct({ id: "prod-10.5", iva: "10.50" });
+        products.create.mockResolvedValue(product);
+        printJobRepo.create.mockResolvedValue(buildPrintJob({ id: "job-10.5" }));
+        idempotencyRepo.create.mockResolvedValue({} as any);
+
+        const result = await useCase.execute(
+          { ...baseInput, iva: "10.5", facturable: true },
+          "key-10.5",
+        );
+
+        expect(products.create).toHaveBeenCalledWith(
+          expect.objectContaining({ iva: "10.50", facturable: true }),
+          expect.anything(),
+        );
+        expect(result.iva).toBe("10.50");
+      });
+
+      it("creates facturable product with normalized 21.00 when given 21", async () => {
+        products.existsAnyBarcode.mockResolvedValue(false);
+        idempotencyRepo.findByKey.mockResolvedValue(null);
+
+        const product = buildProduct({ id: "prod-21", iva: "21.00" });
+        products.create.mockResolvedValue(product);
+        printJobRepo.create.mockResolvedValue(buildPrintJob({ id: "job-21" }));
+        idempotencyRepo.create.mockResolvedValue({} as any);
+
+        await useCase.execute(
+          { ...baseInput, iva: "21", facturable: true },
+          "key-21",
+        );
+
+        expect(products.create).toHaveBeenCalledWith(
+          expect.objectContaining({ iva: "21.00", facturable: true }),
+          expect.anything(),
+        );
+      });
+
+      it("rejects creation of facturable product when IVA is 0 or 0.00", async () => {
+        products.existsAnyBarcode.mockResolvedValue(false);
+
+        await expect(
+          useCase.execute({ ...baseInput, iva: "0", facturable: true }, "key-0"),
+        ).rejects.toBeInstanceOf(ValidationError);
+
+        await expect(
+          useCase.execute({ ...baseInput, iva: "0.00", facturable: true }, "key-0.00"),
+        ).rejects.toBeInstanceOf(ValidationError);
+
+        expect(products.create).not.toHaveBeenCalled();
+      });
+
+      it("rejects creation of facturable product when IVA is null or missing", async () => {
+        products.existsAnyBarcode.mockResolvedValue(false);
+
+        await expect(
+          useCase.execute({ ...baseInput, iva: null, facturable: true }, "key-null"),
+        ).rejects.toBeInstanceOf(ValidationError);
+
+        await expect(
+          useCase.execute({ ...baseInput, iva: undefined, facturable: true }, "key-undef"),
+        ).rejects.toBeInstanceOf(ValidationError);
+
+        expect(products.create).not.toHaveBeenCalled();
+      });
+
+      it("rejects creation of facturable product when IVA is unsupported (e.g., 27.00)", async () => {
+        products.existsAnyBarcode.mockResolvedValue(false);
+
+        await expect(
+          useCase.execute({ ...baseInput, iva: "27.00", facturable: true }, "key-27"),
+        ).rejects.toBeInstanceOf(ValidationError);
+
+        expect(products.create).not.toHaveBeenCalled();
+      });
+
+      it("creates non-facturable product with null IVA when iva is null or undefined", async () => {
+        products.existsAnyBarcode.mockResolvedValue(false);
+        idempotencyRepo.findByKey.mockResolvedValue(null);
+
+        const product = buildProduct({ id: "prod-nf", facturable: false, iva: null });
+        products.create.mockResolvedValue(product);
+        printJobRepo.create.mockResolvedValue(buildPrintJob({ id: "job-nf" }));
+        idempotencyRepo.create.mockResolvedValue({} as any);
+
+        await useCase.execute(
+          { ...baseInput, facturable: false, iva: null },
+          "key-nf-null",
+        );
+
+        expect(products.create).toHaveBeenCalledWith(
+          expect.objectContaining({ facturable: false, iva: null }),
+          expect.anything(),
+        );
+      });
+
+      it("creates non-facturable product with valid normalized IVA when provided", async () => {
+        products.existsAnyBarcode.mockResolvedValue(false);
+        idempotencyRepo.findByKey.mockResolvedValue(null);
+
+        const product = buildProduct({ id: "prod-nf-21", facturable: false, iva: "21.00" });
+        products.create.mockResolvedValue(product);
+        printJobRepo.create.mockResolvedValue(buildPrintJob({ id: "job-nf-21" }));
+        idempotencyRepo.create.mockResolvedValue({} as any);
+
+        await useCase.execute(
+          { ...baseInput, facturable: false, iva: "21" },
+          "key-nf-21",
+        );
+
+        expect(products.create).toHaveBeenCalledWith(
+          expect.objectContaining({ facturable: false, iva: "21.00" }),
+          expect.anything(),
+        );
+      });
+
+      it("rejects non-facturable product when provided IVA is 0 or unsupported", async () => {
+        products.existsAnyBarcode.mockResolvedValue(false);
+
+        await expect(
+          useCase.execute({ ...baseInput, facturable: false, iva: "0" }, "key-nf-0"),
+        ).rejects.toBeInstanceOf(ValidationError);
+
+        await expect(
+          useCase.execute({ ...baseInput, facturable: false, iva: "27.00" }, "key-nf-27"),
+        ).rejects.toBeInstanceOf(ValidationError);
+
+        expect(products.create).not.toHaveBeenCalled();
+      });
     });
+});
