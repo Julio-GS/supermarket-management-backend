@@ -295,4 +295,110 @@ describe("ArcaInvoiceAdapter", () => {
     ).rejects.toThrow("ARCA invoicing is not enabled");
     expect(createNextVoucher).not.toHaveBeenCalled();
   });
+
+  it("accepts vouchers with IVA bucket ID 4 (10.5%)", async () => {
+    createNextVoucher.mockResolvedValue({
+      cae: "74154876254185",
+      caeFchVto: "20240111",
+      response: {
+        FeDetResp: {
+          FECAEDetResponse: [
+            {
+              Resultado: "A",
+              CbteDesde: 43,
+            },
+          ],
+        },
+      },
+    });
+
+    const input: ArcaVoucherInput = {
+      total: "110.50",
+      imp_neto: "100.00",
+      imp_iva: "10.50",
+      iva_buckets: [{ id: 4, base_imp: "100.00", importe: "10.50" }],
+    };
+
+    const result = await adapter.createFacturaBConsumidorFinal(input);
+
+    expect(createNextVoucher).toHaveBeenCalledWith(
+      expect.objectContaining({
+        Iva: [{ Id: 4, BaseImp: 100, Importe: 10.5 }],
+      }),
+    );
+    expect(result.cbte_nro).toBe(43);
+  });
+
+  it("accepts vouchers with multiple valid IVA bucket IDs (4 and 5)", async () => {
+    createNextVoucher.mockResolvedValue({
+      cae: "74154876254185",
+      caeFchVto: "20240111",
+      response: {
+        FeDetResp: {
+          FECAEDetResponse: [
+            {
+              Resultado: "A",
+              CbteDesde: 44,
+            },
+          ],
+        },
+      },
+    });
+
+    const input: ArcaVoucherInput = {
+      total: "231.50",
+      imp_neto: "200.00",
+      imp_iva: "31.50",
+      iva_buckets: [
+        { id: 4, base_imp: "100.00", importe: "10.50" },
+        { id: 5, base_imp: "100.00", importe: "21.00" },
+      ],
+    };
+
+    const result = await adapter.createFacturaBConsumidorFinal(input);
+
+    expect(createNextVoucher).toHaveBeenCalledWith(
+      expect.objectContaining({
+        Iva: [
+          { Id: 4, BaseImp: 100, Importe: 10.5 },
+          { Id: 5, BaseImp: 100, Importe: 21 },
+        ],
+      }),
+    );
+    expect(result.cbte_nro).toBe(44);
+  });
+
+  it.each([3, 6, 7, 8])(
+    "rejects voucher with invalid IVA bucket ID %i without calling the SDK",
+    async (invalidId) => {
+      const input: ArcaVoucherInput = {
+        total: "100.00",
+        imp_neto: "100.00",
+        imp_iva: "0.00",
+        iva_buckets: [{ id: invalidId, base_imp: "100.00", importe: "0.00" }],
+      };
+
+      await expect(adapter.createFacturaBConsumidorFinal(input)).rejects.toThrow(
+        `Unsupported IVA bucket ID: ${invalidId}`,
+      );
+      expect(createNextVoucher).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects voucher with mixed valid and invalid IVA buckets without calling the SDK", async () => {
+    const input: ArcaVoucherInput = {
+      total: "221.00",
+      imp_neto: "200.00",
+      imp_iva: "21.00",
+      iva_buckets: [
+        { id: 5, base_imp: "100.00", importe: "21.00" },
+        { id: 3, base_imp: "100.00", importe: "0.00" },
+      ],
+    };
+
+    await expect(adapter.createFacturaBConsumidorFinal(input)).rejects.toThrow(
+      "Unsupported IVA bucket ID: 3",
+    );
+    expect(createNextVoucher).not.toHaveBeenCalled();
+  });
 });

@@ -3,6 +3,10 @@ import { Decimal } from "decimal.js";
 import { Money } from "../../../shared/money/money.helper";
 import { ValidationError } from "../../../shared/errors/domain.error";
 import {
+  AllowedIvaRate,
+  validateIvaRate,
+} from "../../../shared/fiscal/iva-rate";
+import {
   ArcaInvoicePort,
   ArcaVoucherInput,
   ArcaInvoiceResult,
@@ -13,27 +17,13 @@ export interface InvoiceableItem {
   iva_rate: string;
 }
 
-const IVA_RATE_TO_ARCA_ID: Record<string, number> = {
-  "0": 3,
-  "0.00": 3,
-  "10.5": 4,
+const IVA_RATE_TO_ARCA_ID: Record<AllowedIvaRate, number> = {
   "10.50": 4,
-  "21": 5,
   "21.00": 5,
-  "27": 6,
-  "27.00": 6,
-  "5": 7,
-  "5.00": 7,
-  "2.5": 8,
-  "2.50": 8,
 };
 
-function ivaRateKey(rate: string): string {
-  return Money.toString(Money.parse(rate));
-}
-
-function mapIvaRateToArcaId(rate: string): number {
-  const id = IVA_RATE_TO_ARCA_ID[ivaRateKey(rate)];
+function mapIvaRateToArcaId(rate: AllowedIvaRate): number {
+  const id = IVA_RATE_TO_ARCA_ID[rate];
   if (id === undefined) {
     throw new ValidationError(
       `Unsupported IVA rate for ARCA invoicing: ${rate}`,
@@ -62,11 +52,12 @@ export class IssueArcaInvoiceUseCase {
     for (const item of items) {
       const { line_total, iva_rate } = item;
 
+      const normalizedRate = validateIvaRate(iva_rate);
       const lineFinal = Money.parse(line_total);
-      const ivaRate = Money.parse(iva_rate);
+      const lineRate = Money.parse(normalizedRate);
 
       // net = total / (1 + rate/100)
-      const divisor = Money.add(new Decimal(1), Money.parse(iva_rate).div(100));
+      const divisor = Money.add(new Decimal(1), lineRate.div(100));
       const lineNet = lineFinal.div(divisor);
       const lineIva = lineFinal.sub(lineNet);
 
@@ -74,7 +65,7 @@ export class IssueArcaInvoiceUseCase {
       impNeto = Money.add(impNeto, lineNet);
       impIva = Money.add(impIva, lineIva);
 
-      const ivaId = mapIvaRateToArcaId(iva_rate);
+      const ivaId = mapIvaRateToArcaId(normalizedRate);
       const existing = bucketMap.get(ivaId);
       if (existing) {
         existing.baseImp = Money.add(existing.baseImp, lineNet);

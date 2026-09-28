@@ -130,6 +130,49 @@ describe("SaleFiscalOrchestrator", () => {
       });
       expect(issueInvoiceMock.issue).toHaveBeenCalledWith([{ line_total: "30.00", iva_rate: "10.50" }]);
     });
+
+    it("fails closed without defaulting to 21 when both item and product IVA are missing", async () => {
+      issueInvoiceMock.issue.mockRejectedValueOnce(
+        new ValidationError("Invalid IVA rate: . Only 10.50% and 21.00% are allowed."),
+      );
+      const line = makeFixedLine("p1", "30.00", null);
+      line.resolved.product.iva = null;
+      const result = await orchestrator.issueIfRequested({
+        invoiceRequested: true,
+        saleItems: [line.item],
+        resolvedLines: [line.resolved],
+        postPromotionSubtotal: new Decimal("30.00"),
+        manualDiscountAmount: new Decimal("0.00"),
+      });
+
+      expect(issueInvoiceMock.issue).toHaveBeenCalledWith([{ line_total: "30.00", iva_rate: "" }]);
+      expect(result.invoiceStatus).toBe("failed");
+      expect(result.fiscalFields).toEqual({
+        cae: null,
+        cae_vto: null,
+        cbte_nro: null,
+        cbte_tipo: null,
+        pto_vta: null,
+      });
+    });
+
+    it("fails closed when item IVA is zero (0 or 0.00)", async () => {
+      issueInvoiceMock.issue.mockRejectedValueOnce(
+        new ValidationError("Invalid IVA rate: 0.00. Only 10.50% and 21.00% are allowed."),
+      );
+      const line = makeFixedLine("p1", "50.00", "0.00");
+      const result = await orchestrator.issueIfRequested({
+        invoiceRequested: true,
+        saleItems: [line.item],
+        resolvedLines: [line.resolved],
+        postPromotionSubtotal: new Decimal("50.00"),
+        manualDiscountAmount: new Decimal("0.00"),
+      });
+
+      expect(issueInvoiceMock.issue).toHaveBeenCalledWith([{ line_total: "50.00", iva_rate: "0.00" }]);
+      expect(result.invoiceStatus).toBe("failed");
+      expect(result.fiscalFields.cae).toBeNull();
+    });
   });
 
   describe("when invoice is requested and ARCA fails", () => {
